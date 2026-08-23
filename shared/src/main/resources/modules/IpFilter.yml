@@ -1,14 +1,27 @@
 enabled: true
 priority: 5
-log: "Connection from %address%/%name% rejected: suspicious IP detected! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)" # Set empty "" to disable the logger
+log: "Connection from %address%/%name% rejected: hard-blocked network endpoint matched! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
+
+# Fallback for IPs manually added by staff.
 kick:
   - "%prefix%"
   - ""
-  - "&#FF5555An error occurred while connecting to the server!"
-  - "&#C7C7C7Your internet provider is blocked, make sure your VPN is turned off."
+  - "&#FF5555This network has been blocked by server staff."
+  - "&#C7C7C7You cannot connect from this IP address."
+  - ""
+  - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
+
+kick_reasons:
+  tor:
+    - "%prefix%"
+    - ""
+    - "&#FF5555Tor connection detected."
+    - "&#C7C7C7Tor connections are not allowed. Disconnect from Tor and try again."
+    - ""
+    - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
+
 values:
-  # If true, blocks all ASNs on the list; if false, blocks all ASNs not listed.
+  # Manual staff-managed IP list. The downloaded hard-block set is intentionally
+  # limited to the official Tor exit list in config.yml.
   list_mode: true
-  # List of ASNs (only numbers), you can obtain ASN code by ip on https://mxtoolbox.com/asn.aspx
-  list:
-    - "123.123.123.123"
+  list: []

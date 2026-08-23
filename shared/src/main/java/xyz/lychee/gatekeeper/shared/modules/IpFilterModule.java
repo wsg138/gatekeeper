@@ -11,7 +11,8 @@ import java.io.IOException;
 
 public class IpFilterModule extends AbstractModule {
     private final IntOpenHashSet listedIps = new IntOpenHashSet();
-    private boolean list_mode;
+    private boolean listMode;
+    private Object torKickMessage;
 
     public IpFilterModule(Gatekeeper<?> gatekeeper) {
         super(gatekeeper, "IpFilter");
@@ -19,9 +20,21 @@ public class IpFilterModule extends AbstractModule {
 
     @Override
     public boolean handlePreLogin(GeoConnection connection) {
-        return !connection.isLocalhost()
-                && (GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())
-                || this.listedIps.contains(connection.getAddressData()) == this.list_mode);
+        if (connection.isLocalhost()) return false;
+
+        if (GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
+            return true;
+        }
+
+        return this.listedIps.contains(connection.getAddressData()) == this.listMode;
+    }
+
+    @Override
+    public Object getKickMessage(GeoConnection connection) {
+        if (connection != null && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
+            return this.torKickMessage;
+        }
+        return super.getKickMessage(connection);
     }
 
     @Override
@@ -39,15 +52,20 @@ public class IpFilterModule extends AbstractModule {
         this.listedIps.clear();
 
         for (String address : this.getConfig().getStringList("list")) {
-            this.listedIps.add(AddressUtils.ipv4ToInt(address));
+            if (AddressUtils.isIpv4(address)) {
+                this.listedIps.add(AddressUtils.ipv4ToInt(address));
+            }
         }
-        this.list_mode = this.getConfig().getBoolean("list_mode");
+        this.listMode = this.getConfig().getBoolean("list_mode");
+        this.torKickMessage = this.loadMessage("kick_reasons.tor", super.getKickMessage(null));
 
         return true;
     }
 
     @Override
     public boolean unload() {
+        this.listedIps.clear();
+        this.torKickMessage = null;
         return true;
     }
 }
