@@ -3,47 +3,51 @@ messages:
 
   main_usage:
     - '%prefix% &8• &7Available commands:'
-    - ' &8» &f/gatekeeper whitelist add/remove (address/name/asn) &8- &7Adds/Removes a user or address to/from the whitelist'
-    - ' &8» &f/gatekeeper blacklist add/remove (address/name/asn) &8- &7Adds/Removes a user or address to/from the blacklist'
-    - ' &8» &f/gatekeeper info (address/name/asn) &8- &7Shows information about an address or name'
-    - ' &8» &f/gatekeeper reload &8- &7Reloads lang and config files'
+    - ' &8» &f/gatekeeper whitelist add/remove (address/name/asn) &8- &7Adds/removes a whitelist entry'
+    - ' &8» &f/gatekeeper blacklist add/remove (address/name/asn) &8- &7Adds/removes a blacklist entry'
+    - ' &8» &f/gatekeeper info (address/name/asn) &8- &7Shows staff access-list information'
+    - ' &8» &f/gatekeeper risk (player/ip) &8- &7Shows the latest security decision and evidence'
+    - ' &8» &f/gatekeeper reload &8- &7Reloads GateKeeper configuration'
 
   updater:
-    - '%prefix% &8• &7Plugin needs update, latest version {}'
-    - ' &8» &#5495D2https://modrinth.com/plugin/gatekeeper-mc/version/{}'
+    - '%prefix% &8• &7Fork updates are reviewed manually.'
 
   info:
     usage:
       - '%prefix% &8• &7Correct usage:'
-      - ' &8» &f/gatekeeper info (address/name) &8- &7Shows information about an address or name.'
+      - ' &8» &f/gatekeeper info (address/name/asn)'
     player:
       - '&#FF5555Information about &f{}&#FF5555:'
-      - '&#FF5555Whitelist: &f{}'
-      - '&#FF5555Blacklist: &f{}'
-      - '&#FF5555IP Addresses: &f{}'
-    error: '%prefix% &8• &7Address or player {} was not found.'
+      - '&#FF5555Access: &f{}'
+    error: '%prefix% &8• &7Address, ASN, or player {} was not found in the staff access lists.'
+
+  risk:
+    usage:
+      - '%prefix% &8• &7Correct usage:'
+      - ' &8» &f/gatekeeper risk (player/ip) &8- &7Shows the most recent connection-security result.'
+    error: '%prefix% &8• &7No recent security result was found for {}. Results expire after 30 minutes.'
 
   whitelist:
     usage:
       - '%prefix% &8• &7Correct usage:'
-      - ' &8» &f/gatekeeper whitelist add (address/name) &8- &7Adds a user or address to the whitelist;'
-      - ' &8» &f/gatekeeper whitelist remove (address/name) &8- &7Removes a user or address from the whitelist.'
-    added: '%prefix% &8• &7Player {} has been whitelisted.'
-    removed: '%prefix% &8• &7Player {} has been removed from the whitelist.'
-    missing: '%prefix% &8• &7Player {} is not on the whitelist.'
-    exists: '%prefix% &8• &7Player {} is already on the whitelist.'
-    error: '%prefix% &8• &7Address or player {} was not found.'
+      - ' &8» &f/gatekeeper whitelist add (address/name/asn) &8- &7Adds an entry to the whitelist;'
+      - ' &8» &f/gatekeeper whitelist remove (address/name/asn) &8- &7Removes an entry from the whitelist.'
+    added: '%prefix% &8• &7{} has been whitelisted.'
+    removed: '%prefix% &8• &7{} has been removed from the whitelist.'
+    missing: '%prefix% &8• &7{} is not on the whitelist.'
+    exists: '%prefix% &8• &7{} is already on the whitelist.'
+    error: '%prefix% &8• &7Address, ASN, or player {} was not found.'
 
   blacklist:
     usage:
       - '%prefix% &8• &7Correct usage:'
-      - ' &8» &f/gatekeeper blacklist add (address/name) &8- &7Adds a user or address to the blacklist;'
-      - ' &8» &f/gatekeeper blacklist remove (address/name) &8- &7Removes a user or address from the blacklist.'
-    added: '%prefix% &8• &7Player {} has been blacklisted.'
-    removed: '%prefix% &8• &7Player {} has been removed from the blacklist.'
-    missing: '%prefix% &8• &7Player {} is not on the blacklist.'
-    exists: '%prefix% &8• &7Player {} is already on the blacklist.'
-    error: '%prefix% &8• &7Address or player {} was not found.'
+      - ' &8» &f/gatekeeper blacklist add (address/name/asn) &8- &7Adds an entry to the blacklist;'
+      - ' &8» &f/gatekeeper blacklist remove (address/name/asn) &8- &7Removes an entry from the blacklist.'
+    added: '%prefix% &8• &7{} has been blacklisted.'
+    removed: '%prefix% &8• &7{} has been removed from the blacklist.'
+    missing: '%prefix% &8• &7{} is not on the blacklist.'
+    exists: '%prefix% &8• &7{} is already on the blacklist.'
+    error: '%prefix% &8• &7Address, ASN, or player {} was not found.'
 
   reload:
     config: '%prefix% &8• &7Configuration has been reloaded.'

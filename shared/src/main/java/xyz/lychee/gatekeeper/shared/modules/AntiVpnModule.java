@@ -55,20 +55,13 @@ public class AntiVpnModule extends AbstractModule {
             return false;
         }
 
-        // AntiVPN decisions are always scoped to the exact IP. ASN-wide caching was
-        // a major false-positive multiplier and is intentionally not supported here.
         int id = connection.getAddressData();
-
         CachedVerdict cached = this.getCachedVerdict(id);
-        if (cached != null) {
-            return cached.blocked;
-        }
+        if (cached != null) return cached.blocked;
 
         CompletableFuture<CachedVerdict> ownFuture = new CompletableFuture<>();
         CompletableFuture<CachedVerdict> existingFuture = this.pendingFutures.putIfAbsent(id, ownFuture);
-        if (existingFuture != null) {
-            return existingFuture.join().blocked;
-        }
+        if (existingFuture != null) return existingFuture.join().blocked;
 
         boolean acquired = false;
         try {
@@ -83,21 +76,25 @@ public class AntiVpnModule extends AbstractModule {
             return verdict.blocked;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            CachedVerdict failOpen = CachedVerdict.clean(System.currentTimeMillis() + this.incompleteCacheMillis);
+            CachedVerdict failOpen = CachedVerdict.clean(
+                    System.currentTimeMillis() + this.incompleteCacheMillis,
+                    "check interrupted; failed open"
+            );
             this.checked.put(id, failOpen);
             ownFuture.complete(failOpen);
             return false;
         } catch (Throwable ex) {
             getGatekeeper().logger().log(Level.FINE, "AntiVPN check failed; allowing connection", ex);
-            CachedVerdict failOpen = CachedVerdict.clean(System.currentTimeMillis() + this.incompleteCacheMillis);
+            CachedVerdict failOpen = CachedVerdict.clean(
+                    System.currentTimeMillis() + this.incompleteCacheMillis,
+                    "check failed; failed open"
+            );
             this.checked.put(id, failOpen);
             ownFuture.complete(failOpen);
             return false;
         } finally {
             this.pendingFutures.remove(id, ownFuture);
-            if (acquired && this.semaphore != null) {
-                this.semaphore.release();
-            }
+            if (acquired && this.semaphore != null) this.semaphore.release();
         }
     }
 
@@ -116,8 +113,11 @@ public class AntiVpnModule extends AbstractModule {
 
         int successfulChecks = 0;
         List<java.util.Set<AnonymizerType>> signals = new ArrayList<>(futures.size());
+        List<String> providerDetails = new ArrayList<>(futures.size());
+
         for (CompletableFuture<ProviderResult> future : futures) {
             ProviderResult result = future.join();
+            providerDetails.add(result.describe());
             if (!result.available) continue;
             successfulChecks++;
             signals.add(result.signals);
@@ -131,14 +131,14 @@ public class AntiVpnModule extends AbstractModule {
         } else if (successfulChecks >= this.blockThreshold) {
             ttl = this.cleanCacheMillis;
         } else {
-            // Temporary API outages/rate limits should not become long-lived clean verdicts.
             ttl = this.incompleteCacheMillis;
         }
 
         return new CachedVerdict(
                 decision.isBlocked(),
                 decision.getReason(),
-                now + ttl
+                now + ttl,
+                String.join(", ", providerDetails)
         );
     }
 
@@ -149,7 +149,6 @@ public class AntiVpnModule extends AbstractModule {
                 .uri(URI.create(urlStr))
                 .timeout(Duration.ofMillis(this.timeout))
                 .GET();
-
         provider.headers.forEach(requestBuilder::header);
 
         return TaskManager.INSTANCE.getHttpClient()
@@ -161,13 +160,13 @@ public class AntiVpnModule extends AbstractModule {
                                 "AntiVPN provider {0} returned HTTP {1}; ignoring provider for this check",
                                 new Object[]{provider.name, response.statusCode()}
                         );
-                        return ProviderResult.unavailable();
+                        return ProviderResult.unavailable(provider.name, "http_" + response.statusCode());
                     }
-                    return ProviderResult.available(provider.evaluate(response.body()));
+                    return ProviderResult.available(provider.name, provider.evaluate(response.body()));
                 })
                 .exceptionally(ex -> {
                     getGatekeeper().logger().log(Level.FINE, "AntiVPN provider failed: " + provider.name, ex);
-                    return ProviderResult.unavailable();
+                    return ProviderResult.unavailable(provider.name, "error");
                 });
     }
 
@@ -181,22 +180,32 @@ public class AntiVpnModule extends AbstractModule {
 
     @Override
     public Object getKickMessage(GeoConnection connection) {
+        if (connection == null) return super.getKickMessage(null);
         CachedVerdict verdict = this.getCachedVerdict(connection.getAddressData());
-        if (verdict == null || verdict.reason == null) {
-            return super.getKickMessage(connection);
-        }
+        if (verdict == null || verdict.reason == null) return super.getKickMessage(connection);
         return this.reasonKickMessages.getOrDefault(verdict.reason, super.getKickMessage(connection));
     }
 
     @Override
-    public boolean handlePostLogin(GeoConnection connection) {
-        return false;
+    public String getDecisionCode(GeoConnection connection) {
+        if (connection == null) return "antivpn";
+        CachedVerdict verdict = this.getCachedVerdict(connection.getAddressData());
+        if (verdict == null || verdict.reason == null) return "antivpn";
+        return verdict.reason.getConfigKey();
     }
 
     @Override
-    public boolean handleDisconnect(GeoConnection connection) {
-        return false;
+    public String getDecisionDetail(GeoConnection connection) {
+        if (connection == null) return "";
+        CachedVerdict verdict = this.getCachedVerdict(connection.getAddressData());
+        return verdict == null ? "" : verdict.detail;
     }
+
+    @Override
+    public boolean handlePostLogin(GeoConnection connection) { return false; }
+
+    @Override
+    public boolean handleDisconnect(GeoConnection connection) { return false; }
 
     @Override
     public boolean load() throws IOException {
@@ -248,9 +257,7 @@ public class AntiVpnModule extends AbstractModule {
             Map<AnonymizerType, AbstractConditionSet> conditions = this.loadSignalConditions(section);
             if (conditions.isEmpty()) {
                 AbstractConditionSet legacyCondition = this.loadLegacyCondition(section);
-                if (legacyCondition != null) {
-                    conditions.put(AnonymizerType.ANONYMIZER, legacyCondition);
-                }
+                if (legacyCondition != null) conditions.put(AnonymizerType.ANONYMIZER, legacyCondition);
             }
 
             if (!conditions.isEmpty()) {
@@ -258,10 +265,7 @@ public class AntiVpnModule extends AbstractModule {
             }
         }
 
-        if (needSave) {
-            this.getYamlDocument().save();
-        }
-
+        if (needSave) this.getYamlDocument().save();
         return true;
     }
 
@@ -301,7 +305,7 @@ public class AntiVpnModule extends AbstractModule {
 
     @Override
     public boolean unload() {
-        CachedVerdict failOpen = CachedVerdict.clean(System.currentTimeMillis() + 1000L);
+        CachedVerdict failOpen = CachedVerdict.clean(System.currentTimeMillis() + 1000L, "module unloading");
         this.pendingFutures.values().forEach(future -> future.complete(failOpen));
         this.pendingFutures.clear();
         this.checked.clear();
@@ -311,49 +315,56 @@ public class AntiVpnModule extends AbstractModule {
         return true;
     }
 
-    private static int positiveOrDefault(int value, int defaultValue) {
-        return value > 0 ? value : defaultValue;
-    }
-
-    private static long minutesToMillis(int minutes) {
-        return minutes * 60_000L;
-    }
-
-    private static long secondsToMillis(int seconds) {
-        return seconds * 1000L;
-    }
+    private static int positiveOrDefault(int value, int defaultValue) { return value > 0 ? value : defaultValue; }
+    private static long minutesToMillis(int minutes) { return minutes * 60_000L; }
+    private static long secondsToMillis(int seconds) { return seconds * 1000L; }
 
     private static final class CachedVerdict {
         private final boolean blocked;
         private final AnonymizerType reason;
         private final long expiresAtMillis;
+        private final String detail;
 
-        private CachedVerdict(boolean blocked, AnonymizerType reason, long expiresAtMillis) {
+        private CachedVerdict(boolean blocked, AnonymizerType reason, long expiresAtMillis, String detail) {
             this.blocked = blocked;
             this.reason = reason;
             this.expiresAtMillis = expiresAtMillis;
+            this.detail = detail == null ? "" : detail;
         }
 
-        private static CachedVerdict clean(long expiresAtMillis) {
-            return new CachedVerdict(false, null, expiresAtMillis);
+        private static CachedVerdict clean(long expiresAtMillis, String detail) {
+            return new CachedVerdict(false, null, expiresAtMillis, detail);
         }
     }
 
     private static final class ProviderResult {
+        private final String provider;
         private final boolean available;
         private final EnumSet<AnonymizerType> signals;
+        private final String status;
 
-        private ProviderResult(boolean available, EnumSet<AnonymizerType> signals) {
+        private ProviderResult(String provider, boolean available, EnumSet<AnonymizerType> signals, String status) {
+            this.provider = provider;
             this.available = available;
             this.signals = signals;
+            this.status = status;
         }
 
-        private static ProviderResult unavailable() {
-            return new ProviderResult(false, EnumSet.noneOf(AnonymizerType.class));
+        private static ProviderResult unavailable(String provider, String status) {
+            return new ProviderResult(provider, false, EnumSet.noneOf(AnonymizerType.class), status);
         }
 
-        private static ProviderResult available(EnumSet<AnonymizerType> signals) {
-            return new ProviderResult(true, signals);
+        private static ProviderResult available(String provider, EnumSet<AnonymizerType> signals) {
+            return new ProviderResult(provider, true, signals, "ok");
+        }
+
+        private String describe() {
+            if (!this.available) return this.provider + "=unavailable(" + this.status + ")";
+            if (this.signals.isEmpty()) return this.provider + "=clean";
+            return this.provider + "=" + this.signals.stream()
+                    .map(AnonymizerType::getConfigKey)
+                    .sorted()
+                    .collect(Collectors.joining("+"));
         }
     }
 
@@ -363,12 +374,7 @@ public class AntiVpnModule extends AbstractModule {
         private final Map<String, String> headers;
         private final Map<AnonymizerType, AbstractConditionSet> conditions;
 
-        private Provider(
-                String name,
-                String url,
-                Map<String, String> headers,
-                Map<AnonymizerType, AbstractConditionSet> conditions
-        ) {
+        private Provider(String name, String url, Map<String, String> headers, Map<AnonymizerType, AbstractConditionSet> conditions) {
             this.name = name;
             this.url = url;
             this.headers = headers;
@@ -378,9 +384,7 @@ public class AntiVpnModule extends AbstractModule {
         private EnumSet<AnonymizerType> evaluate(String body) {
             EnumSet<AnonymizerType> matches = EnumSet.noneOf(AnonymizerType.class);
             for (Map.Entry<AnonymizerType, AbstractConditionSet> entry : this.conditions.entrySet()) {
-                if (entry.getValue().evaluate(body)) {
-                    matches.add(entry.getKey());
-                }
+                if (entry.getValue().evaluate(body)) matches.add(entry.getKey());
             }
             return matches;
         }

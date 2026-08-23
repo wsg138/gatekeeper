@@ -2,6 +2,7 @@ package xyz.lychee.gatekeeper.shared.objects;
 
 import xyz.lychee.gatekeeper.shared.manager.DataManager;
 import xyz.lychee.gatekeeper.shared.manager.ModuleManager;
+import xyz.lychee.gatekeeper.shared.manager.SecurityHistoryManager;
 import xyz.lychee.gatekeeper.shared.util.AddressUtils;
 import xyz.lychee.gatekeeper.shared.util.TimingUtil;
 
@@ -37,6 +38,7 @@ public class ListenerHandler {
         CHECKS.increment();
 
         if (DataManager.INSTANCE.updateAndCheckAccess(connection, EnumAccess.WHITELIST)) {
+            SecurityHistoryManager.INSTANCE.record(connection, "ALLOW", "whitelist", "staff whitelist bypass");
             return null;
         }
 
@@ -44,9 +46,17 @@ public class ListenerHandler {
             if (module.handlePreLogin(connection)) {
                 DETECTIONS.increment();
                 module.printCheck(connection, timer);
+                SecurityHistoryManager.INSTANCE.record(
+                        connection,
+                        "BLOCK",
+                        module.getDecisionCode(connection),
+                        module.getDecisionDetail(connection)
+                );
                 return module.getKickMessage(connection);
             }
         }
+
+        SecurityHistoryManager.INSTANCE.record(connection, "ALLOW", "clean", "");
         return null;
     }
 

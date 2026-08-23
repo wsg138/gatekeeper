@@ -1,0 +1,44 @@
+name: Build and test
+
+on:
+  push:
+    branches:
+      - main
+      - 'enthusia/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Test and build
+        run: ./gradlew clean test shadowJar --no-daemon --stacktrace
+
+      - name: Upload Gatekeeper JAR
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gatekeeper-build
+          path: build/libs/Gatekeeper-*.jar
+          if-no-files-found: error
+          retention-days: 14
