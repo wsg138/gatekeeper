@@ -13,6 +13,7 @@ import xyz.lychee.gatekeeper.shared.util.TimingUtil;
 
 import java.io.File;
 import java.util.Collections;
+import java.util.List;
 
 @Setter
 @Getter
@@ -36,6 +37,20 @@ public abstract class AbstractModule {
     public abstract boolean handlePostLogin(GeoConnection connection);
 
     public abstract boolean handleDisconnect(GeoConnection connection);
+
+    /**
+     * Modules with dynamic decisions can override this to return a more precise
+     * player-facing reason. Static modules continue using the configured kick message.
+     */
+    public Object getKickMessage(GeoConnection connection) {
+        return this.kickMessage;
+    }
+
+    protected Object loadMessage(String path, Object fallback) {
+        List<String> lines = this.yamlDocument.getStringList(path, Collections.emptyList());
+        if (lines == null || lines.isEmpty()) return fallback;
+        return this.gatekeeper.language().color(String.join("\n", lines), true);
+    }
 
     public void printCheck(GeoConnection connection, TimingUtil timer) {
         if (this.logMessage != null) {

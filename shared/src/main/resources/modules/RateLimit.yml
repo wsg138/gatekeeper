@@ -1,11 +1,13 @@
 enabled: true
 priority: 2
-log: "Connection from %address%/%name% rejected: connection rate limit exceeded! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)" # Set empty "" to disable the logger
+log: "Connection from %address%/%name% rejected: connection rate limit exceeded! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
 kick:
   - "%prefix%"
   - ""
-  - "&#FF5555An error occurred while connecting to the server!"
-  - "&#C7C7C7Too many players are trying to connect to the server right now, please try again in a moment."
+  - "&#FF5555Too many connection attempts."
+  - "&#C7C7C7Wait a few seconds and try connecting again."
+  - ""
+  - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
 values:
-  server_limit: 300 # 1 connection every 300 ms
-  ip_limit: 2000 # 1 connection every 2000 ms
+  server_limit: 300 # 1 connection every 300 ms across the server
+  ip_limit: 2000 # 1 connection every 2000 ms from one IP

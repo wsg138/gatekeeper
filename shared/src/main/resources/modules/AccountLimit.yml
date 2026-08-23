@@ -1,10 +1,12 @@
 enabled: true
 priority: 3
-log: "Connection from %address%/%name% rejected: too many accounts detected from this IP! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)" # Set empty "" to disable the logger
+log: "Connection from %address%/%name% rejected: too many simultaneous accounts on this IP! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
 kick:
   - "%prefix%"
   - ""
-  - "&#FF5555An error occurred while connecting to the server!"
-  - "&#C7C7C7Too many accounts are using this IP address at the same time."
+  - "&#FF5555Too many accounts are connected from your network."
+  - "&#C7C7C7Disconnect another account and try again."
+  - ""
+  - "&#8A8A8AIf this is a shared network and you believe this is a mistake, open a ticket in our Discord."
 values:
   per_ip_limit: 3

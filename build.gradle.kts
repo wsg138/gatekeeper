@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "xyz.lychee.gatekeeper"
-version = "1.6.2.2"
+version = "1.7.0.0"
 
 dependencies {
     implementation(project(":shared", "shadow"))
@@ -19,7 +19,6 @@ tasks {
     shadowJar {
         archiveBaseName.set("Gatekeeper")
         archiveClassifier.set("")
-        destinationDirectory.set(file("C:/Users/lajczi/Desktop/testowy/plugins"))
 
         relocate("dev.dejvokep.boostedyaml", "xyz.lychee.gatekeeper.libs.yaml")
     }
@@ -52,7 +51,6 @@ allprojects {
     tasks {
         compileJava {
             options.encoding = Charsets.UTF_8.name()
-            //options.release = 8
         }
     }
 

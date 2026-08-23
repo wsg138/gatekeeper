@@ -67,13 +67,16 @@ public final class TextConditionSet extends AbstractConditionSet {
     public boolean evaluate(String str) {
         if (str == null || orClauses == null) return false;
 
+        String lowerCase = str.toLowerCase();
         for (Term[] andBlock : orClauses) {
-            String lowerCase = str.toLowerCase();
-            for (Term t : andBlock) {
-                if (t.matches(lowerCase)) {
-                    return true;
+            boolean allMatch = true;
+            for (Term term : andBlock) {
+                if (!term.matches(lowerCase)) {
+                    allMatch = false;
+                    break;
                 }
             }
+            if (allMatch) return true;
         }
         return false;
     }

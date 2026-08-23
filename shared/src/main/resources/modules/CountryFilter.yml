@@ -1,15 +1,15 @@
 enabled: false
 priority: 6
-log: "Connection from %address%/%name% rejected: blocked country! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)" # Set empty "" to disable the logger
+log: "Connection from %address%/%name% rejected: blocked country! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
 kick:
   - "%prefix%"
   - ""
-  - "&#FF5555An error occurred while connecting to the server!"
-  - "&#C7C7C7Connections from this country are blocked."
+  - "&#FF5555Connections from your country are not currently allowed."
+  - "&#C7C7C7This is a server policy restriction, not a VPN detection."
+  - ""
+  - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
 values:
-  # If true, blocks all countries on the list; if false, blocks all countries not listed.
   list_mode: false
-  # Alpha-2 codes list: https://en.wikipedia.org/wiki/ISO_3166-1#Current_codes
   list:
     - "US"
     - "PL"

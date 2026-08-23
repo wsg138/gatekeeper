@@ -1,37 +1,35 @@
 package xyz.lychee.gatekeeper.shared.manager;
 
-import com.grack.nanojson.JsonArray;
-import com.grack.nanojson.JsonObject;
-import com.grack.nanojson.JsonParser;
-import com.grack.nanojson.JsonParserException;
 import lombok.Getter;
 import xyz.lychee.gatekeeper.shared.Gatekeeper;
 import xyz.lychee.gatekeeper.shared.objects.AbstractManager;
 
-import java.io.IOException;
-import java.net.URI;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.List;
-import java.util.logging.Level;
 
+/**
+ * The Enthusia fork intentionally does not consume upstream GateKeeper update
+ * notices. Upstream releases can overwrite or conflict with fork-specific
+ * security behavior, so updates are reviewed and merged deliberately instead.
+ */
 @Getter
 public class UpdaterManager extends AbstractManager implements Runnable {
     public static final UpdaterManager INSTANCE = new UpdaterManager();
     private final VersionComparator comparator = new VersionComparator();
     private int compared = 0;
     private int difference = 0;
-    private int behind = -1;
+    private int behind = 0;
     private String latestVersion = "";
     private String currentVersion = "";
-    private boolean updater;
-    private Gatekeeper<?> plugin;
+    private boolean updater = false;
 
     @Override
     public boolean load(Gatekeeper<?> plugin) {
-        this.updater = ConfigManager.INSTANCE.getYaml().getBoolean("main.updater");
         this.currentVersion = plugin.platformData().getPluginVersion().trim();
-        this.plugin = plugin;
+        this.latestVersion = this.currentVersion;
+        this.compared = 0;
+        this.difference = 0;
+        this.behind = 0;
+        this.updater = false;
         return true;
     }
 
@@ -45,76 +43,9 @@ public class UpdaterManager extends AbstractManager implements Runnable {
         return true;
     }
 
-    private int calculateBuildsBehind(List<String> versions) {
-        if (this.currentVersion.equals(this.latestVersion)) {
-            return 0;
-        }
-
-        int currentIndex = -1;
-        int latestIndex = -1;
-
-        for (int i = 0; i < versions.size(); i++) {
-            String version = versions.get(i);
-            if (version.equals(this.currentVersion)) {
-                currentIndex = i;
-            }
-            if (version.equals(this.latestVersion)) {
-                latestIndex = i;
-            }
-        }
-
-        if (currentIndex != -1 && latestIndex != -1) {
-            return currentIndex - latestIndex;
-        }
-
-        return -1;
-    }
-
     @Override
     public void run() {
-        try {
-            JsonArray array = JsonParser.array().from(URI.create("https://api.modrinth.com/v2/project/gatekeeper-mc/version").toURL());
-
-            List<String> versions = new ArrayList<>();
-            for (Object o : array) {
-                String v = ((JsonObject) o).getString("version_number");
-
-                if (!v.matches(".*[^0-9.].*")) {
-                    versions.add(v);
-                }
-            }
-
-            if (!versions.isEmpty()) {
-                versions.sort((v1, v2) -> this.comparator.compare(v2, v1));
-
-                this.latestVersion = versions.get(0);
-                this.behind = this.calculateBuildsBehind(versions);
-            } else {
-                this.latestVersion = this.currentVersion;
-                this.behind = 0;
-            }
-
-            this.difference = this.comparator.difference(this.currentVersion, this.latestVersion);
-            this.compared = this.comparator.compare(this.currentVersion, this.latestVersion);
-
-            if ((this.difference >= 0 && this.difference < 2) || this.behind > 5) {
-                this.updater = true;
-            }
-        } catch (IOException | JsonParserException ex) {
-            this.plugin.logger().log(Level.WARNING, ex.getMessage(), ex);
-        }
-
-        if (this.updater && this.compared < 0) {
-            this.plugin.logger().info(
-                    String.format("\n&8∘₊✧────────────────────────────────✧₊∘" +
-                                    "\n&c&lGatekeeper needs an update!" +
-                                    "\n&fVersion: &e&n%s&r -> &e&n%s&r" +
-                                    "\n&ahttps://modrinth.com/plugin/gatekeeper-mc/version/%s" +
-                                    "\n&8∘₊✧────────────────────────────────✧₊∘",
-                            this.currentVersion, this.latestVersion, this.latestVersion
-                    )
-            );
-        }
+        // No-op by design. Fork updates are reviewed and applied manually.
     }
 
     public static class VersionComparator implements Comparator<String> {
@@ -124,16 +55,11 @@ public class UpdaterManager extends AbstractManager implements Runnable {
             String[] parts2 = latest.split("\\.");
 
             int length = Math.max(parts1.length, parts2.length);
-
             for (int i = 0; i < length; i++) {
                 int num1 = i < parts1.length ? Integer.parseInt(parts1[i]) : 0;
                 int num2 = i < parts2.length ? Integer.parseInt(parts2[i]) : 0;
-
-                if (num1 != num2) {
-                    return Integer.compare(num1, num2);
-                }
+                if (num1 != num2) return Integer.compare(num1, num2);
             }
-
             return 0;
         }
 
@@ -145,13 +71,9 @@ public class UpdaterManager extends AbstractManager implements Runnable {
             for (int i = 0; i < length; i++) {
                 int num1 = i < parts1.length ? Integer.parseInt(parts1[i]) : 0;
                 int num2 = i < parts2.length ? Integer.parseInt(parts2[i]) : 0;
-
-                if (num1 < num2) {
-                    return i;
-                }
+                if (num1 < num2) return i;
             }
             return -1;
         }
     }
 }
-
