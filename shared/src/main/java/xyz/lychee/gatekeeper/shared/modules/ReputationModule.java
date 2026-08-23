@@ -35,7 +35,7 @@ public class ReputationModule extends AbstractModule {
 
     @Override
     public boolean handlePreLogin(GeoConnection connection) {
-        if (connection.isLocalhost()) return false;
+        if (connection.isLocalhost() || !connection.isIpv4()) return false;
 
         EnumSet<RiskSignalType> matches = ReputationManager.INSTANCE.assess(
                 connection.getAddressData(),
@@ -48,19 +48,14 @@ public class ReputationModule extends AbstractModule {
             connection.getRiskAssessment().add(new RiskSignal(type, points, "network reputation"));
         }
 
-        // Reputation is context, never an automatic hard block.
         return false;
     }
 
     @Override
-    public boolean handlePostLogin(GeoConnection connection) {
-        return false;
-    }
+    public boolean handlePostLogin(GeoConnection connection) { return false; }
 
     @Override
-    public boolean handleDisconnect(GeoConnection connection) {
-        return false;
-    }
+    public boolean handleDisconnect(GeoConnection connection) { return false; }
 
     @Override
     public boolean load() {

@@ -7,7 +7,6 @@ import xyz.lychee.gatekeeper.shared.objects.GeoConnection;
 import xyz.lychee.gatekeeper.shared.security.RiskSignal;
 import xyz.lychee.gatekeeper.shared.security.RiskSignalType;
 
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,8 +15,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class AccountLimitModule extends AbstractModule implements Runnable {
-    private final Map<Integer, AtomicInteger> connectedByIp = new ConcurrentHashMap<>();
-    private final Map<Integer, AccountWindow> recentAccounts = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> connectedByIp = new ConcurrentHashMap<>();
+    private final Map<String, AccountWindow> recentAccounts = new ConcurrentHashMap<>();
 
     private ScheduledFuture<?> task;
     private int accountLimitPerIp;
@@ -34,10 +33,7 @@ public class AccountLimitModule extends AbstractModule implements Runnable {
         if (connection.isLocalhost()) return false;
 
         long now = connection.getTimestamp() > 0 ? connection.getTimestamp() : System.currentTimeMillis();
-        AccountWindow window = this.recentAccounts.computeIfAbsent(
-                connection.getAddressData(),
-                ignored -> new AccountWindow()
-        );
+        AccountWindow window = this.recentAccounts.computeIfAbsent(connection.getAddressKey(), ignored -> new AccountWindow());
         int uniqueAccounts = window.record(connection.getName(), now, this.velocityWindowMillis);
 
         if (this.riskUniqueAccounts > 0 && uniqueAccounts >= this.riskUniqueAccounts) {
@@ -48,18 +44,20 @@ public class AccountLimitModule extends AbstractModule implements Runnable {
             ));
         }
 
-        // The simultaneous-account limit is deliberately a high emergency ceiling.
-        // Shared households, dorms and CGNAT can legitimately put many players on
-        // one public IP, so ordinary suspicious activity is handled by risk scoring.
         if (this.accountLimitPerIp <= 0) return false;
-        AtomicInteger connected = this.connectedByIp.get(connection.getAddressData());
+        AtomicInteger connected = this.connectedByIp.get(connection.getAddressKey());
         return connected != null && connected.get() >= this.accountLimitPerIp;
+    }
+
+    @Override
+    public String getDecisionDetail(GeoConnection connection) {
+        return "simultaneous account emergency ceiling exceeded";
     }
 
     @Override
     public boolean handlePostLogin(GeoConnection connection) {
         if (!connection.isLocalhost()) {
-            this.connectedByIp.computeIfAbsent(connection.getAddressData(), ignored -> new AtomicInteger())
+            this.connectedByIp.computeIfAbsent(connection.getAddressKey(), ignored -> new AtomicInteger())
                     .incrementAndGet();
         }
         return false;
@@ -68,9 +66,9 @@ public class AccountLimitModule extends AbstractModule implements Runnable {
     @Override
     public boolean handleDisconnect(GeoConnection connection) {
         if (!connection.isLocalhost()) {
-            this.connectedByIp.computeIfPresent(connection.getAddressData(), (ignored, count) -> {
-                return count.decrementAndGet() > 0 ? count : null;
-            });
+            this.connectedByIp.computeIfPresent(connection.getAddressKey(), (ignored, count) ->
+                    count.decrementAndGet() > 0 ? count : null
+            );
         }
         return false;
     }
@@ -78,28 +76,26 @@ public class AccountLimitModule extends AbstractModule implements Runnable {
     @Override
     public void run() {
         long cutoff = System.currentTimeMillis() - this.velocityWindowMillis;
-        Iterator<Map.Entry<Integer, AccountWindow>> iterator = this.recentAccounts.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Integer, AccountWindow> entry = iterator.next();
-            if (entry.getValue().isEmptyAfter(cutoff)) {
-                this.recentAccounts.remove(entry.getKey(), entry.getValue());
-            }
-        }
+        this.recentAccounts.entrySet().removeIf(entry -> entry.getValue().isEmptyAfter(cutoff));
     }
 
     @Override
     public boolean load() {
-        // Zero intentionally disables the hard simultaneous-account cap. Negative
-        // values are also treated as disabled rather than silently becoming strict.
-        this.accountLimitPerIp = Math.max(0, this.getConfig().getInt("per_ip_limit"));
+        boolean modernConfig = this.getConfig().contains("velocity_window_minutes");
+        // Upstream's legacy default was a hard limit of 3. If that file survives
+        // migration, never inherit that false-positive-prone value.
+        this.accountLimitPerIp = modernConfig
+                ? Math.max(0, this.getConfig().getInt("per_ip_limit"))
+                : 20;
         this.velocityWindowMillis = minutesToMillis(
-                positiveOrDefault(this.getConfig().getInt("velocity_window_minutes"), 10)
+                modernConfig ? positiveOrDefault(this.getConfig().getInt("velocity_window_minutes"), 10) : 10
         );
-        this.riskUniqueAccounts = positiveOrDefault(this.getConfig().getInt("risk_unique_accounts"), 6);
-        this.riskPoints = positiveOrDefault(
-                this.getConfig().getInt("risk_points"),
-                RiskSignalType.ACCOUNT_VELOCITY.getDefaultPoints()
-        );
+        this.riskUniqueAccounts = modernConfig
+                ? Math.max(0, this.getConfig().getInt("risk_unique_accounts"))
+                : 10;
+        this.riskPoints = modernConfig
+                ? positiveOrDefault(this.getConfig().getInt("risk_points"), RiskSignalType.ACCOUNT_VELOCITY.getDefaultPoints())
+                : RiskSignalType.ACCOUNT_VELOCITY.getDefaultPoints();
 
         this.task = TaskManager.INSTANCE.getScheduler().scheduleAtFixedRate(this, 1, 1, TimeUnit.MINUTES);
         return true;
@@ -116,13 +112,8 @@ public class AccountLimitModule extends AbstractModule implements Runnable {
         return true;
     }
 
-    private static int positiveOrDefault(int value, int defaultValue) {
-        return value > 0 ? value : defaultValue;
-    }
-
-    private static long minutesToMillis(int minutes) {
-        return minutes * 60_000L;
-    }
+    private static int positiveOrDefault(int value, int defaultValue) { return value > 0 ? value : defaultValue; }
+    private static long minutesToMillis(int minutes) { return minutes * 60_000L; }
 
     private static final class AccountWindow {
         private final Map<String, Long> lastSeen = new ConcurrentHashMap<>();

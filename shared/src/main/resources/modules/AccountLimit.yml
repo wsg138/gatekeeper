@@ -1,6 +1,6 @@
 enabled: true
 priority: 3
-log: "Connection from %address%/%name% rejected: too many simultaneous accounts on this IP! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
+log: "Connection from %address%/%name% rejected: too many simultaneous accounts on this address! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
 kick:
   - "%prefix%"
   - ""
@@ -10,13 +10,12 @@ kick:
   - "&#8A8A8AIf this is a shared network and you believe this is a mistake, open a ticket in our Discord."
 
 values:
-  # Last-resort simultaneous-account ceiling. This is intentionally high because
-  # families, dorms, schools and CGNAT can legitimately share one public IP.
-  # Set to 0 to disable this hard cap entirely.
-  per_ip_limit: 12
+  # High emergency ceiling only. Shared households, schools, dorms and CGNAT can
+  # legitimately share a public address. Set 0 to disable the hard cap entirely.
+  per_ip_limit: 20
 
-  # Rolling account velocity is risk context, not an automatic block. It becomes
-  # actionable only when the central risk policy also has enough supporting evidence.
+  # Rolling account velocity is risk context, not an automatic block. It only
+  # becomes enforceable when combined with another strong behavior signal.
   velocity_window_minutes: 10
-  risk_unique_accounts: 6
+  risk_unique_accounts: 10
   risk_points: 50

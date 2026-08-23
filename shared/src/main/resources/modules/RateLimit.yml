@@ -10,16 +10,19 @@ kick:
   - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
 
 values:
-  # Risk scoring starts well before the hard limit. A player is not blocked from
-  # this risk signal alone; Risk.yml requires a high score plus strong evidence.
   window_seconds: 10
   burst_seconds: 2
-  risk_attempts_per_ip: 5
+
+  # Risk context starts before the direct hard limits, but does not block by
+  # itself. Zero disables a threshold.
+  risk_attempts_per_ip: 8
   risk_points: 60
 
-  # Extreme behavior is safe to stop directly without waiting for other signals.
-  hard_attempts_per_ip: 12
-  hard_burst_per_ip: 6
+  # Direct kicks are reserved for clearly extreme behavior so shared NATs and
+  # restart reconnect waves are not collateral damage.
+  hard_attempts_per_ip: 30
+  hard_burst_per_ip: 12
 
-  # High enough to survive normal restart/reconnect waves on a 100+ player server.
-  hard_server_attempts: 200
+  # Disabled by default. Global traffic volume cannot identify which individual
+  # client is malicious and would otherwise kick innocent users during a DDoS.
+  hard_server_attempts: 0

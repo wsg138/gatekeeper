@@ -1,8 +1,8 @@
 package xyz.lychee.gatekeeper.shared.modules;
 
 import xyz.lychee.gatekeeper.shared.Gatekeeper;
-import xyz.lychee.gatekeeper.shared.manager.TaskManager;
 import xyz.lychee.gatekeeper.shared.objects.AbstractModule;
+import xyz.lychee.gatekeeper.shared.objects.EnumAccess;
 import xyz.lychee.gatekeeper.shared.objects.GeoConnection;
 import xyz.lychee.gatekeeper.shared.security.RiskSignal;
 import xyz.lychee.gatekeeper.shared.security.RiskSignalType;
@@ -14,9 +14,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import xyz.lychee.gatekeeper.shared.manager.TaskManager;
 
 public class RateLimitModule extends AbstractModule implements Runnable {
-    private final Map<Integer, AttemptWindow> ipAttempts = new ConcurrentHashMap<>();
+    private final Map<String, AttemptWindow> ipAttempts = new ConcurrentHashMap<>();
     private final Deque<Long> serverAttempts = new ArrayDeque<>();
 
     private ScheduledFuture<?> task;
@@ -33,15 +34,20 @@ public class RateLimitModule extends AbstractModule implements Runnable {
     }
 
     @Override
+    public boolean runsForWhitelistedConnections() {
+        return true;
+    }
+
+    @Override
     public boolean handlePreLogin(GeoConnection connection) {
         if (connection.isLocalhost()) return false;
 
         long now = connection.getTimestamp() > 0 ? connection.getTimestamp() : System.currentTimeMillis();
-        AttemptWindow window = this.ipAttempts.computeIfAbsent(connection.getAddressData(), ignored -> new AttemptWindow());
+        AttemptWindow window = this.ipAttempts.computeIfAbsent(connection.getAddressKey(), ignored -> new AttemptWindow());
         AttemptStats stats = window.record(now, this.windowMillis, this.burstMillis);
-        int serverCount = this.recordServerAttempt(now);
 
-        if (this.riskAttemptsPerIp > 0 && stats.windowCount >= this.riskAttemptsPerIp) {
+        boolean whitelisted = connection.getAccess() == EnumAccess.WHITELIST;
+        if (!whitelisted && this.riskAttemptsPerIp > 0 && stats.windowCount >= this.riskAttemptsPerIp) {
             connection.getRiskAssessment().add(new RiskSignal(
                     RiskSignalType.RAPID_CONNECTIONS,
                     this.riskPoints,
@@ -51,6 +57,11 @@ public class RateLimitModule extends AbstractModule implements Runnable {
 
         boolean hardIpLimit = this.hardAttemptsPerIp > 0 && stats.windowCount >= this.hardAttemptsPerIp;
         boolean hardBurstLimit = this.hardBurstPerIp > 0 && stats.burstCount >= this.hardBurstPerIp;
+
+        // A global surge does not apply to whitelisted connections; otherwise an
+        // unrelated botnet could lock trusted staff out. It is disabled by default
+        // because global volume alone cannot identify which client is malicious.
+        int serverCount = (!whitelisted && this.hardServerAttempts > 0) ? this.recordServerAttempt(now) : 0;
         boolean hardServerLimit = this.hardServerAttempts > 0 && serverCount >= this.hardServerAttempts;
         return hardIpLimit || hardBurstLimit || hardServerLimit;
     }
@@ -64,14 +75,15 @@ public class RateLimitModule extends AbstractModule implements Runnable {
     }
 
     @Override
-    public boolean handlePostLogin(GeoConnection connection) {
-        return false;
+    public String getDecisionDetail(GeoConnection connection) {
+        return "per-address connection flood threshold exceeded";
     }
 
     @Override
-    public boolean handleDisconnect(GeoConnection connection) {
-        return false;
-    }
+    public boolean handlePostLogin(GeoConnection connection) { return false; }
+
+    @Override
+    public boolean handleDisconnect(GeoConnection connection) { return false; }
 
     @Override
     public void run() {
@@ -86,10 +98,10 @@ public class RateLimitModule extends AbstractModule implements Runnable {
     public boolean load() {
         this.windowMillis = secondsToMillis(positiveOrDefault(this.getConfig().getInt("window_seconds"), 10));
         this.burstMillis = secondsToMillis(positiveOrDefault(this.getConfig().getInt("burst_seconds"), 2));
-        this.riskAttemptsPerIp = positiveOrDefault(this.getConfig().getInt("risk_attempts_per_ip"), 5);
-        this.hardAttemptsPerIp = positiveOrDefault(this.getConfig().getInt("hard_attempts_per_ip"), 12);
-        this.hardBurstPerIp = positiveOrDefault(this.getConfig().getInt("hard_burst_per_ip"), 6);
-        this.hardServerAttempts = positiveOrDefault(this.getConfig().getInt("hard_server_attempts"), 200);
+        this.riskAttemptsPerIp = Math.max(0, this.getConfig().getInt("risk_attempts_per_ip"));
+        this.hardAttemptsPerIp = Math.max(0, this.getConfig().getInt("hard_attempts_per_ip"));
+        this.hardBurstPerIp = Math.max(0, this.getConfig().getInt("hard_burst_per_ip"));
+        this.hardServerAttempts = Math.max(0, this.getConfig().getInt("hard_server_attempts"));
         this.riskPoints = positiveOrDefault(
                 this.getConfig().getInt("risk_points"),
                 RiskSignalType.RAPID_CONNECTIONS.getDefaultPoints()

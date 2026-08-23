@@ -6,8 +6,6 @@ main:
   prefix: "&#54DAF4ɢ&#54CCEDᴀ&#54BEE6ᴛ&#54B1DFᴇ&#54A3D8ᴋ&#5495D2ᴇ&#5487CBᴇ&#547AC4ᴘ&#546CBDᴇ&#545EB6ʀ"
   prefix_hover: false
 
-  # Upstream update notices are disabled in the fork. Updates are reviewed and
-  # merged intentionally so upstream releases cannot overwrite fork behavior.
   updater: false
 
   bStats:
@@ -23,16 +21,17 @@ main:
 
   auto_updater:
     enabled: true
-    interval: 12
+    # Hard Tor data is refreshed hourly by the fork; broader GeoIP/ASN data uses
+    # longer freshness windows internally.
+    interval: 1
 
     # ASN-wide hard blocking is intentionally unused by default.
     asn_sources: []
 
-    # IMPORTANT: this legacy GeoIP list is a HARD BLOCK. Keep it extremely small.
-    # We only use the official Tor exit list here because an exact Tor exit match
-    # is strong enough to block without relying on broad IP reputation.
+    # HARD BLOCK intelligence must stay extremely high-confidence. The default
+    # contains only the Tor Project's current bulk exit list.
     proxy_sources:
-      - "https://check.torproject.org/torbulkexitlist?ip=1.1.1.1"
+      - "https://check.torproject.org/torbulkexitlist"
 
   # These sources NEVER directly kick a player. They only contribute one risk
   # signal per category, no matter how many overlapping feeds contain the IP.

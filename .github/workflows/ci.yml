@@ -1,4 +1,4 @@
-name: Build and test
+name: Build, test and smoke
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Set up Java 25
+      - name: Set up Java 25 for compilation
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -35,10 +35,133 @@ jobs:
         run: ./gradlew clean test shadowJar --no-daemon --stacktrace
 
       - name: Upload Gatekeeper JAR
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: gatekeeper-build
           path: build/libs/Gatekeeper-*.jar
           if-no-files-found: error
           retention-days: 14
+
+  paper-smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Set up Java 21 for Paper 1.21.11
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Download Gatekeeper build
+        uses: actions/download-artifact@v5
+        with:
+          name: gatekeeper-build
+          path: smoke/plugins
+
+      - name: Download latest stable Paper 1.21.11
+        shell: bash
+        run: |
+          set -euo pipefail
+          USER_AGENT='Enthusia-GateKeeper-CI/1.0 (https://github.com/wsg138/gatekeeper)'
+          BUILDS=$(curl -fsSL -H "User-Agent: ${USER_AGENT}" \
+            'https://fill.papermc.io/v3/projects/paper/versions/1.21.11/builds')
+          PAPER_URL=$(printf '%s' "$BUILDS" | jq -r 'first(.[] | select(.channel == "STABLE") | .downloads."server:default".url) // "null"')
+          test "$PAPER_URL" != "null"
+          curl -fL --retry 3 -H "User-Agent: ${USER_AGENT}" "$PAPER_URL" -o smoke/paper.jar
+
+      - name: Prepare smoke server
+        shell: bash
+        run: |
+          printf 'eula=true\n' > smoke/eula.txt
+          cat > smoke/server.properties <<'EOF'
+          online-mode=false
+          server-port=25575
+          max-players=5
+          view-distance=2
+          simulation-distance=2
+          spawn-protection=0
+          EOF
+
+      - name: Boot Paper and stop cleanly
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import selectors
+          import subprocess
+          import sys
+          import time
+
+          command = [
+              'java', '-Xms512M', '-Xmx1G',
+              '-Dpaper.disableStartupVersionCheck',
+              '-jar', 'paper.jar', '--nogui'
+          ]
+          process = subprocess.Popen(
+              command,
+              cwd='smoke',
+              stdin=subprocess.PIPE,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
+              text=True,
+              bufsize=1,
+          )
+          selector = selectors.DefaultSelector()
+          selector.register(process.stdout, selectors.EVENT_READ)
+          deadline = time.time() + 150
+          lines = []
+          server_ready = False
+          gatekeeper_seen = False
+
+          try:
+              while time.time() < deadline:
+                  if process.poll() is not None:
+                      break
+                  events = selector.select(timeout=1)
+                  for key, _ in events:
+                      line = key.fileobj.readline()
+                      if not line:
+                          continue
+                      print(line, end='')
+                      lines.append(line)
+                      lower = line.lower()
+                      if 'gatekeeper' in lower and ('enabled manager' in lower or 'enabling gatekeeper' in lower or 'gatekeeper v1.7.0.0' in lower):
+                          gatekeeper_seen = True
+                      if 'done (' in lower and 'for help' in lower:
+                          server_ready = True
+                          process.stdin.write('stop\n')
+                          process.stdin.flush()
+                          break
+                  if server_ready:
+                      break
+
+              if not server_ready:
+                  raise RuntimeError('Paper did not reach a ready state before the smoke-test timeout')
+              if not gatekeeper_seen:
+                  raise RuntimeError('Paper started, but GateKeeper was not observed enabling successfully')
+
+              try:
+                  return_code = process.wait(timeout=45)
+              except subprocess.TimeoutExpired:
+                  process.kill()
+                  raise RuntimeError('Paper did not stop cleanly after the stop command')
+              if return_code != 0:
+                  raise RuntimeError(f'Paper exited with code {return_code}')
+          finally:
+              if process.poll() is None:
+                  process.kill()
+              os.makedirs('smoke', exist_ok=True)
+              with open('smoke/smoke-console.log', 'w', encoding='utf-8') as handle:
+                  handle.writelines(lines)
+          PY
+
+      - name: Upload smoke log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-smoke-log
+          path: smoke/smoke-console.log
+          if-no-files-found: ignore
+          retention-days: 7

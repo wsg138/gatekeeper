@@ -3,60 +3,87 @@ package xyz.lychee.gatekeeper.shared.objects;
 import xyz.lychee.gatekeeper.shared.manager.DataManager;
 import xyz.lychee.gatekeeper.shared.manager.ModuleManager;
 import xyz.lychee.gatekeeper.shared.manager.SecurityHistoryManager;
-import xyz.lychee.gatekeeper.shared.util.AddressUtils;
 import xyz.lychee.gatekeeper.shared.util.TimingUtil;
 
 import java.net.InetAddress;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.locks.Lock;
 
 public class ListenerHandler {
     private static final LongAdder CHECKS = new LongAdder();
     private static final LongAdder DETECTIONS = new LongAdder();
 
     public void handleDisconnect(InetAddress address, String name) {
-        int addressData = AddressUtils.ipv4ToInt(address);
-        GeoConnection connection = new GeoConnection(address, addressData, name);
-        for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
-            module.handleDisconnect(connection);
+        GeoConnection connection = new GeoConnection(address, name);
+        Lock lock = ModuleManager.INSTANCE.readLock();
+        lock.lock();
+        try {
+            for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
+                module.handleDisconnect(connection);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
     public void handlePostLogin(InetAddress address, String name) {
-        int addressData = AddressUtils.ipv4ToInt(address);
-        GeoConnection connection = new GeoConnection(address, addressData, name);
-        for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
-            module.handlePostLogin(connection);
+        GeoConnection connection = new GeoConnection(address, name);
+        Lock lock = ModuleManager.INSTANCE.readLock();
+        lock.lock();
+        try {
+            for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
+                module.handlePostLogin(connection);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
     public Object handlePreLogin(InetAddress address, String name) {
         TimingUtil timer = TimingUtil.startNew();
-
-        int addressData = AddressUtils.ipv4ToInt(address);
-        GeoConnection connection = new GeoConnection(address, addressData, name);
+        GeoConnection connection = new GeoConnection(address, name);
         connection.setTimestamp(System.currentTimeMillis());
         CHECKS.increment();
 
-        if (DataManager.INSTANCE.updateAndCheckAccess(connection, EnumAccess.WHITELIST)) {
-            SecurityHistoryManager.INSTANCE.record(connection, "ALLOW", "whitelist", "staff whitelist bypass");
-            return null;
-        }
+        boolean whitelisted = DataManager.INSTANCE.updateAndCheckAccess(connection, EnumAccess.WHITELIST);
 
-        for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
-            if (module.handlePreLogin(connection)) {
-                DETECTIONS.increment();
-                module.printCheck(connection, timer);
-                SecurityHistoryManager.INSTANCE.record(
-                        connection,
-                        "BLOCK",
-                        module.getDecisionCode(connection),
-                        module.getDecisionDetail(connection)
-                );
-                return module.getKickMessage(connection);
+        Lock lock = ModuleManager.INSTANCE.readLock();
+        lock.lock();
+        try {
+            for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
+                if (whitelisted && !module.runsForWhitelistedConnections()) continue;
+
+                if (module.handlePreLogin(connection)) {
+                    DETECTIONS.increment();
+                    module.printCheck(connection, timer);
+                    SecurityHistoryManager.INSTANCE.record(
+                            connection,
+                            "BLOCK",
+                            module.getDecisionCode(connection),
+                            module.getDecisionDetail(connection)
+                    );
+                    return module.getKickMessage(connection);
+                }
             }
+        } finally {
+            lock.unlock();
         }
 
-        SecurityHistoryManager.INSTANCE.record(connection, "ALLOW", "clean", "");
+        if (connection.getDiagnosticAction() != null) {
+            SecurityHistoryManager.INSTANCE.record(
+                    connection,
+                    connection.getDiagnosticAction(),
+                    connection.getDiagnosticReason() == null ? "risk" : connection.getDiagnosticReason(),
+                    connection.getDiagnosticDetail() == null ? "" : connection.getDiagnosticDetail()
+            );
+        } else {
+            SecurityHistoryManager.INSTANCE.record(
+                    connection,
+                    "ALLOW",
+                    whitelisted ? "whitelist" : "clean",
+                    whitelisted ? "staff whitelist bypass; flood protection remained active" : ""
+            );
+        }
         return null;
     }
 

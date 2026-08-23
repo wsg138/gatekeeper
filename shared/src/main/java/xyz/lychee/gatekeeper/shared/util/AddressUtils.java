@@ -2,6 +2,7 @@ package xyz.lychee.gatekeeper.shared.util;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Locale;
 
 public class AddressUtils {
     private AddressUtils() throws IllegalAccessException {
@@ -14,11 +15,26 @@ public class AddressUtils {
         return !cleaned.isEmpty() && cleaned.charAt(cleaned.length() - 1) == '.' ? cleaned.substring(0, cleaned.length() - 1) : cleaned;
     }
 
+    public static boolean isIpv4(InetAddress address) {
+        return address != null && address.getAddress().length == 4;
+    }
+
+    public static String addressKey(InetAddress address) {
+        if (address == null) throw new IllegalArgumentException("Address cannot be null");
+        return address.getHostAddress().toLowerCase(Locale.ROOT);
+    }
+
     public static int ipv4ToInt(InetAddress address) {
+        if (!isIpv4(address)) {
+            throw new IllegalArgumentException("Expected IPv4 address but got " + (address == null ? "null" : address.getHostAddress()));
+        }
         return ipv4ToInt(address.getAddress());
     }
 
     public static int ipv4ToInt(byte[] bytes) {
+        if (bytes == null || bytes.length != 4) {
+            throw new IllegalArgumentException("Expected exactly 4 bytes for an IPv4 address");
+        }
         return ((bytes[0] & 0xFF) << 24) |
                 ((bytes[1] & 0xFF) << 16) |
                 ((bytes[2] & 0xFF) << 8) |
@@ -83,7 +99,6 @@ public class AddressUtils {
     }
 
     public static boolean isIpv4Equal(InetAddress address, int addressData) {
-        byte[] bytes = address.getAddress();
-        return bytes.length == 4 && AddressUtils.ipv4ToInt(bytes) == addressData;
+        return isIpv4(address) && AddressUtils.ipv4ToInt(address) == addressData;
     }
 }
