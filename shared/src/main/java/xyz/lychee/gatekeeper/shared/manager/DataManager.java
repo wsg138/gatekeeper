@@ -21,8 +21,10 @@ import xyz.lychee.gatekeeper.shared.util.MathUtils;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -45,33 +47,39 @@ public class DataManager extends AbstractManager implements Runnable {
     }
 
     @Override
-    public boolean load(Gatekeeper<?> plugin) throws IOException, JsonParserException {
+    public synchronized boolean load(Gatekeeper<?> plugin) throws IOException, JsonParserException {
         this.logger = plugin.logger();
         this.dataPath = new File(plugin.dataFolder(), "data.json").toPath();
+        Files.createDirectories(this.dataPath.getParent());
 
-        if (Files.notExists(this.dataPath)) {
-            Files.createDirectories(this.dataPath.getParent());
-        } else {
+        this.clearMemory();
+        if (Files.exists(this.dataPath)) {
             this.loadDataFile();
         }
         return true;
     }
 
     @Override
-    public boolean unload(Gatekeeper<?> plugin) {
+    public synchronized boolean unload(Gatekeeper<?> plugin) {
+        // Staff whitelist/blacklist changes are security state, so force a final
+        // write instead of relying on the periodic one-minute save happening first.
+        this.saveDataFile();
         return true;
     }
 
     @Override
-    public boolean reload(Gatekeeper<?> plugin) throws IOException, JsonParserException {
+    public synchronized boolean reload(Gatekeeper<?> plugin) throws IOException, JsonParserException {
+        this.clearMemory();
+        if (Files.exists(this.dataPath)) {
+            this.loadDataFile();
+        }
+        return true;
+    }
+
+    private void clearMemory() {
         this.addresses.clear();
         this.nicknames.clear();
         this.asns.clear();
-
-        if (Files.notExists(this.dataPath)) {
-            this.loadDataFile();
-        }
-        return true;
     }
 
     private void loadDataFile() throws IOException, JsonParserException {
@@ -82,7 +90,10 @@ public class DataManager extends AbstractManager implements Runnable {
             if (addressesObj != null) {
                 for (Map.Entry<String, Object> entry : addressesObj.entrySet()) {
                     try {
-                        this.addresses.put(Integer.parseInt(entry.getKey()), ((Number) entry.getValue()).byteValue());
+                        Object value = entry.getValue();
+                        if (value instanceof Number) {
+                            this.addresses.put(Integer.parseInt(entry.getKey()), ((Number) value).byteValue());
+                        }
                     } catch (NumberFormatException ignored) {}
                 }
             }
@@ -90,51 +101,81 @@ public class DataManager extends AbstractManager implements Runnable {
             JsonObject nicknamesObj = json.getObject("nicknames");
             if (nicknamesObj != null) {
                 for (Map.Entry<String, Object> entry : nicknamesObj.entrySet()) {
-                    this.nicknames.put(entry.getKey(), ((Number) entry.getValue()).byteValue());
+                    Object value = entry.getValue();
+                    if (value instanceof Number) {
+                        this.nicknames.put(entry.getKey(), ((Number) value).byteValue());
+                    }
                 }
             }
 
             JsonObject asnsObj = json.getObject("asns");
             if (asnsObj != null) {
                 for (Map.Entry<String, Object> entry : asnsObj.entrySet()) {
-                    this.asns.put(Integer.parseInt(entry.getKey()), ((Number) entry.getValue()).byteValue());
+                    try {
+                        Object value = entry.getValue();
+                        if (value instanceof Number) {
+                            this.asns.put(Integer.parseInt(entry.getKey()), ((Number) value).byteValue());
+                        }
+                    } catch (NumberFormatException ignored) {}
                 }
             }
         }
     }
 
-    public void saveDataFile() {
+    public synchronized void saveDataFile() {
+        if (this.dataPath == null) return;
+
         JsonObject json = new JsonObject();
         json.put("addresses", this.addresses);
         json.put("asns", this.asns);
         json.put("nicknames", this.nicknames);
 
+        Path tempPath = this.dataPath.resolveSibling(this.dataPath.getFileName() + ".tmp");
         try {
-            Files.writeString(this.dataPath, JsonWriter.string(json));
+            Files.createDirectories(this.dataPath.getParent());
+            Files.writeString(tempPath, JsonWriter.string(json));
+            try {
+                Files.move(
+                        tempPath,
+                        this.dataPath,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(tempPath, this.dataPath, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException ex) {
-            this.logger.log(Level.SEVERE, "Failed to save database file " + this.dataPath.getFileName().toString(), ex);
+            try {
+                Files.deleteIfExists(tempPath);
+            } catch (IOException ignored) {}
+            if (this.logger != null) {
+                this.logger.log(Level.SEVERE, "Failed to save database file " + this.dataPath.getFileName(), ex);
+            }
         }
     }
 
-    public void updateAddress(int addressData, byte accessType) {
+    public synchronized void updateAddress(int addressData, byte accessType) {
         this.addresses.put(addressData, accessType);
+        this.saveDataFile();
     }
 
-    public void updateAsn(int asn, byte accessType) {
+    public synchronized void updateAsn(int asn, byte accessType) {
         this.asns.put(asn, accessType);
+        this.saveDataFile();
     }
 
-    public void updateNickname(String nickname, byte accessType) {
+    public synchronized void updateNickname(String nickname, byte accessType) {
         this.nicknames.put(nickname, accessType);
+        this.saveDataFile();
     }
 
     public boolean updateAndCheckAccess(GeoConnection connection, EnumAccess targetAccess) {
-        byte access = nicknames.getByte(connection.getName());
+        byte access = this.nicknames.getByte(connection.getName());
         if (access == 0) {
-            access = addresses.get(connection.getAddressData());
+            access = this.addresses.get(connection.getAddressData());
         }
         if (access == 0) {
-            access = asns.get(connection.getAsn());
+            access = this.asns.get(connection.getAsn());
         }
         if (access != 0) {
             connection.setAccess(EnumAccess.getByType(access));
