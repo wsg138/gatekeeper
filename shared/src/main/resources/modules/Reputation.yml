@@ -1,0 +1,18 @@
+# Broad reputation is context only. This module never blocks a player by itself.
+enabled: true
+priority: 6
+log: ""
+kick: []
+
+values:
+  # One signal category can only contribute once, even if several overlapping
+  # feeds contain the same IP/ASN. This prevents list overlap from inflating risk.
+  scores:
+    vpn_ip: 20
+    proxy_ip: 20
+    hosting_ip: 8
+    scanner_ip: 10
+    abuse_ip: 8
+    vpn_asn: 15
+    hosting_asn: 8
+    scanner_asn: 5

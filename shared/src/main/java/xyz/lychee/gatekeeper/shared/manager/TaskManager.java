@@ -53,6 +53,7 @@ public class TaskManager extends AbstractManager {
                 .build();
 
         this.scheduler.scheduleAtFixedRate(GeoipManager.INSTANCE, 1, 6, TimeUnit.HOURS);
+        this.scheduler.scheduleAtFixedRate(ReputationManager.INSTANCE, 12, 12, TimeUnit.HOURS);
         this.scheduler.scheduleAtFixedRate(UpdaterManager.INSTANCE, 1, 60, TimeUnit.MINUTES);
         this.scheduler.scheduleAtFixedRate(DataManager.INSTANCE, 1, 1, TimeUnit.MINUTES);
         return true;

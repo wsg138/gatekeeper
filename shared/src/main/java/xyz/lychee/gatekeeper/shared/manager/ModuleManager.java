@@ -24,6 +24,7 @@ public class ModuleManager extends AbstractManager {
                 new BlacklistModule(plugin),
                 new CountryFilterModule(plugin),
                 new RateLimitModule(plugin),
+                new ReputationModule(plugin),
                 new AntiVpnModule(plugin),
                 new IpFilterModule(plugin)
         );

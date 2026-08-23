@@ -13,8 +13,9 @@ public interface Gatekeeper<T> {
             ConfigManager.INSTANCE,
             TaskManager.INSTANCE,
             DataManager.INSTANCE,
-            ModuleManager.INSTANCE,
             GeoipManager.INSTANCE,
+            ReputationManager.INSTANCE,
+            ModuleManager.INSTANCE,
             UpdaterManager.INSTANCE,
             MetricsManager.INSTANCE
     };

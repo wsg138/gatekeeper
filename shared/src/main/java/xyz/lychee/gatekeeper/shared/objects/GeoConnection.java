@@ -1,15 +1,14 @@
 package xyz.lychee.gatekeeper.shared.objects;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 import xyz.lychee.gatekeeper.shared.manager.GeoipManager;
+import xyz.lychee.gatekeeper.shared.security.RiskAssessment;
 
 import java.net.InetAddress;
 
 @Getter
 @Setter
-@AllArgsConstructor
 public class GeoConnection {
     private final InetAddress address;
     private final String name;
@@ -17,6 +16,7 @@ public class GeoConnection {
     private final boolean localhost;
     private final String country;
     private final int asn;
+    private final RiskAssessment riskAssessment = new RiskAssessment();
     private volatile long timestamp = -1L;
     private volatile EnumAccess access = EnumAccess.NULL;
 
