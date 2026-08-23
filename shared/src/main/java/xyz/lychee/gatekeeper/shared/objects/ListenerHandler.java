@@ -47,7 +47,7 @@ public class ListenerHandler {
             if (check.handlePreLogin(connection)) {
                 DETECTIONS.increment();
                 check.printCheck(connection, t);
-                return check.getKickMessage();
+                return check.getKickMessage(connection);
             }
         }
         return null;

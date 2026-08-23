@@ -106,11 +106,14 @@ public final class JsonConditionSet extends AbstractConditionSet {
         try {
             JsonObject json = JsonParser.object().from(str);
             for (Term[] andBlock : orClauses) {
-                for (Term t : andBlock) {
-                    if (t.matches(json)) {
-                        return true;
+                boolean allMatch = true;
+                for (Term term : andBlock) {
+                    if (!term.matches(json)) {
+                        allMatch = false;
+                        break;
                     }
                 }
+                if (allMatch) return true;
             }
         } catch (JsonParserException ignored) {}
         return false;
