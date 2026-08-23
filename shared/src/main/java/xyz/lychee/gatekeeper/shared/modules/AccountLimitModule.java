@@ -48,6 +48,9 @@ public class AccountLimitModule extends AbstractModule implements Runnable {
             ));
         }
 
+        // The simultaneous-account limit is deliberately a high emergency ceiling.
+        // Shared households, dorms and CGNAT can legitimately put many players on
+        // one public IP, so ordinary suspicious activity is handled by risk scoring.
         if (this.accountLimitPerIp <= 0) return false;
         AtomicInteger connected = this.connectedByIp.get(connection.getAddressData());
         return connected != null && connected.get() >= this.accountLimitPerIp;
@@ -86,7 +89,9 @@ public class AccountLimitModule extends AbstractModule implements Runnable {
 
     @Override
     public boolean load() {
-        this.accountLimitPerIp = positiveOrDefault(this.getConfig().getInt("per_ip_limit"), 5);
+        // Zero intentionally disables the hard simultaneous-account cap. Negative
+        // values are also treated as disabled rather than silently becoming strict.
+        this.accountLimitPerIp = Math.max(0, this.getConfig().getInt("per_ip_limit"));
         this.velocityWindowMillis = minutesToMillis(
                 positiveOrDefault(this.getConfig().getInt("velocity_window_minutes"), 10)
         );
