@@ -4,7 +4,7 @@
 
 main:
   prefix: "&#54DAF4ɢ&#54CCEDᴀ&#54BEE6ᴛ&#54B1DFᴇ&#54A3D8ᴋ&#5495D2ᴇ&#5487CBᴇ&#547AC4ᴘ&#546CBDᴇ&#545EB6ʀ"
-  prefix_hover: true
+  prefix_hover: false
 
   # Upstream update notices are disabled in the fork. Updates are reviewed and
   # merged intentionally so upstream releases cannot overwrite fork behavior.

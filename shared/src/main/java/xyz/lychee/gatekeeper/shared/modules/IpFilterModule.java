@@ -38,14 +38,26 @@ public class IpFilterModule extends AbstractModule {
     }
 
     @Override
-    public boolean handlePostLogin(GeoConnection connection) {
-        return false;
+    public String getDecisionCode(GeoConnection connection) {
+        if (connection != null && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
+            return "tor";
+        }
+        return "manual_ip_block";
     }
 
     @Override
-    public boolean handleDisconnect(GeoConnection connection) {
-        return false;
+    public String getDecisionDetail(GeoConnection connection) {
+        if (connection != null && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
+            return "official Tor exit list";
+        }
+        return "staff-managed IP filter";
     }
+
+    @Override
+    public boolean handlePostLogin(GeoConnection connection) { return false; }
+
+    @Override
+    public boolean handleDisconnect(GeoConnection connection) { return false; }
 
     @Override
     public boolean load() throws IOException {
@@ -58,7 +70,6 @@ public class IpFilterModule extends AbstractModule {
         }
         this.listMode = this.getConfig().getBoolean("list_mode");
         this.torKickMessage = this.loadMessage("kick_reasons.tor", super.getKickMessage(null));
-
         return true;
     }
 

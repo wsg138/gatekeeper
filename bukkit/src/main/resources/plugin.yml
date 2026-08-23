@@ -8,5 +8,5 @@ folia-supported: true
 commands:
   gatekeeper:
     description: "Gatekeeper command manager"
-    usage: "/gatekeeper <whitelist|blacklist|info|reload>"
+    usage: "/gatekeeper <whitelist|blacklist|info|risk|reload>"
     aliases: [ gk ]

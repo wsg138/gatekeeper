@@ -59,19 +59,35 @@ public class RiskModule extends AbstractModule {
     }
 
     @Override
-    public boolean handlePostLogin(GeoConnection connection) {
-        return false;
+    public String getDecisionCode(GeoConnection connection) {
+        if (connection == null) return "risk";
+        RiskAssessment assessment = connection.getRiskAssessment();
+        boolean rapid = assessment.hasSignal(RiskSignalType.RAPID_CONNECTIONS);
+        boolean accounts = assessment.hasSignal(RiskSignalType.ACCOUNT_VELOCITY);
+        if (rapid && accounts) return "automated_behavior";
+        if (accounts) return "account_velocity";
+        if (rapid) return "rapid_connections";
+        return "risk";
     }
 
     @Override
-    public boolean handleDisconnect(GeoConnection connection) {
-        return false;
+    public String getDecisionDetail(GeoConnection connection) {
+        if (connection == null) return "";
+        return "score=" + connection.getRiskAssessment().getScore()
+                + "; " + describe(connection.getRiskAssessment().getSignals());
     }
+
+    @Override
+    public boolean handlePostLogin(GeoConnection connection) { return false; }
+
+    @Override
+    public boolean handleDisconnect(GeoConnection connection) { return false; }
 
     @Override
     public boolean load() {
-        String mode = this.getConfig().getString("mode", "enforce");
-        this.enforce = !"shadow".equalsIgnoreCase(mode == null ? "" : mode.trim());
+        String mode = this.getConfig().getString("mode");
+        if (mode == null || mode.isBlank()) mode = "enforce";
+        this.enforce = !"shadow".equalsIgnoreCase(mode.trim());
         this.blockScore = positiveOrDefault(this.getConfig().getInt("block_score"), 90);
         this.logScore = Math.max(0, this.getConfig().getInt("log_score"));
         this.requireStrongSignal = this.getConfig().getBoolean("require_strong_signal");
@@ -84,9 +100,7 @@ public class RiskModule extends AbstractModule {
     }
 
     @Override
-    public boolean unload() {
-        return true;
-    }
+    public boolean unload() { return true; }
 
     private static String describe(List<RiskSignal> signals) {
         if (signals.isEmpty()) return "none";

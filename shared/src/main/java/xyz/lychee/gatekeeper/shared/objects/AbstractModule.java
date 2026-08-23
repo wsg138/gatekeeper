@@ -14,6 +14,7 @@ import xyz.lychee.gatekeeper.shared.util.TimingUtil;
 import java.io.File;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 @Setter
 @Getter
@@ -44,6 +45,16 @@ public abstract class AbstractModule {
      */
     public Object getKickMessage(GeoConnection connection) {
         return this.kickMessage;
+    }
+
+    /** Short machine-readable code stored in recent staff diagnostics. */
+    public String getDecisionCode(GeoConnection connection) {
+        return this.name.toLowerCase(Locale.ROOT);
+    }
+
+    /** Optional diagnostic detail, such as provider votes. */
+    public String getDecisionDetail(GeoConnection connection) {
+        return "";
     }
 
     protected Object loadMessage(String path, Object fallback) {

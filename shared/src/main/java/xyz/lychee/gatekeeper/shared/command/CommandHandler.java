@@ -5,6 +5,7 @@ import xyz.lychee.gatekeeper.shared.Gatekeeper;
 import xyz.lychee.gatekeeper.shared.command.subcommand.BlacklistCommand;
 import xyz.lychee.gatekeeper.shared.command.subcommand.InfoCommand;
 import xyz.lychee.gatekeeper.shared.command.subcommand.ReloadCommand;
+import xyz.lychee.gatekeeper.shared.command.subcommand.RiskCommand;
 import xyz.lychee.gatekeeper.shared.command.subcommand.WhitelistCommand;
 import xyz.lychee.gatekeeper.shared.objects.AbstractLang;
 import xyz.lychee.gatekeeper.shared.objects.CommandPlayer;
@@ -20,6 +21,7 @@ public class CommandHandler<T> extends PermissibleCommand<T> {
         this.commandMap.put("whitelist", new WhitelistCommand<>(gatekeeper));
         this.commandMap.put("blacklist", new BlacklistCommand<>(gatekeeper));
         this.commandMap.put("info", new InfoCommand<>(gatekeeper));
+        this.commandMap.put("risk", new RiskCommand<>(gatekeeper));
         this.commandMap.put("reload", new ReloadCommand<>(gatekeeper));
     }
 
@@ -41,11 +43,8 @@ public class CommandHandler<T> extends PermissibleCommand<T> {
         if (args.length == 1) {
             List<String> firstArguments = new ArrayList<>();
             for (String commandString : this.commandMap.keySet()) {
-                if (this.commandMap.get(commandString) != null) {
-                    PermissibleCommand<T> cmd = this.commandMap.get(commandString);
-                    if (player.hasPermission(cmd.getPermission()))
-                        firstArguments.add(commandString);
-                } else {
+                PermissibleCommand<T> cmd = this.commandMap.get(commandString);
+                if (cmd == null || player.hasPermission(cmd.getPermission())) {
                     firstArguments.add(commandString);
                 }
             }
