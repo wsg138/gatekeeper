@@ -1,0 +1,42 @@
+enabled: true
+priority: 9
+log: ""
+
+kick:
+  - "%prefix%"
+  - ""
+  - "&#FF5555Automated or abusive connection behavior was detected."
+  - "&#C7C7C7Wait a few minutes before trying again."
+  - ""
+  - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
+
+kick_reasons:
+  rapid_connections:
+    - "%prefix%"
+    - ""
+    - "&#FF5555Automated connection behavior detected."
+    - "&#C7C7C7Too many connection attempts were made from your network. Wait a few minutes and try again."
+    - ""
+    - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
+  account_velocity:
+    - "%prefix%"
+    - ""
+    - "&#FF5555Unusual account activity detected."
+    - "&#C7C7C7Too many different accounts recently connected from your network."
+    - ""
+    - "&#8A8A8AIf this is a shared network and you believe this is a mistake, open a ticket in our Discord."
+  automated_behavior:
+    - "%prefix%"
+    - ""
+    - "&#FF5555Automated connection behavior detected."
+    - "&#C7C7C7Rapid connection attempts and unusual account activity were detected from your network."
+    - ""
+    - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
+
+values:
+  # "shadow" logs decisions without enforcing them. "enforce" blocks only when
+  # the score reaches block_score AND a strong behavior signal is present.
+  mode: "enforce"
+  block_score: 90
+  log_score: 30
+  require_strong_signal: true

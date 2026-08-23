@@ -1,13 +1,25 @@
 enabled: true
 priority: 2
-log: "Connection from %address%/%name% rejected: connection rate limit exceeded! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
+log: "Connection from %address%/%name% rejected: connection flood limit exceeded! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
 kick:
   - "%prefix%"
   - ""
   - "&#FF5555Too many connection attempts."
-  - "&#C7C7C7Wait a few seconds and try connecting again."
+  - "&#C7C7C7Wait a short time before trying to connect again."
   - ""
   - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
+
 values:
-  server_limit: 300 # 1 connection every 300 ms across the server
-  ip_limit: 2000 # 1 connection every 2000 ms from one IP
+  # Risk scoring starts well before the hard limit. A player is not blocked from
+  # this risk signal alone; Risk.yml requires a high score plus strong evidence.
+  window_seconds: 10
+  burst_seconds: 2
+  risk_attempts_per_ip: 5
+  risk_points: 60
+
+  # Extreme behavior is safe to stop directly without waiting for other signals.
+  hard_attempts_per_ip: 12
+  hard_burst_per_ip: 6
+
+  # High enough to survive normal restart/reconnect waves on a 100+ player server.
+  hard_server_attempts: 200
