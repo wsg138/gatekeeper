@@ -40,6 +40,14 @@ public abstract class AbstractModule {
     public abstract boolean handleDisconnect(GeoConnection connection);
 
     /**
+     * Whitelisting bypasses content/reputation policy, but modules that protect
+     * server availability can opt in so a whitelist never becomes a flood bypass.
+     */
+    public boolean runsForWhitelistedConnections() {
+        return false;
+    }
+
+    /**
      * Modules with dynamic decisions can override this to return a more precise
      * player-facing reason. Static modules continue using the configured kick message.
      */
@@ -68,7 +76,7 @@ public abstract class AbstractModule {
             this.gatekeeper.logger().info(
                     this.logMessage
                             .replace("%name%", connection.getName())
-                            .replace("%address%", connection.getAddress().getHostAddress())
+                            .replace("%address%", connection.getAddressKey())
                             .replace("%country%", connection.getCountry())
                             .replace("%asn%", Integer.toString(connection.getAsn()))
                             .replace("%time%", Long.toString(timer.stop().getExecutingTime()))

@@ -47,33 +47,49 @@ public class TaskManager extends AbstractManager {
         );
 
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
+                .connectTimeout(Duration.ofSeconds(10))
                 .executor(this.callbackExecutor)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
 
-        this.scheduler.scheduleAtFixedRate(GeoipManager.INSTANCE, 1, 6, TimeUnit.HOURS);
+        // Hard Tor exits are time-sensitive; refresh hourly. Broader reputation
+        // data is scoring-only and can use a much slower cadence.
+        this.scheduler.scheduleAtFixedRate(GeoipManager.INSTANCE, 1, 1, TimeUnit.HOURS);
         this.scheduler.scheduleAtFixedRate(ReputationManager.INSTANCE, 12, 12, TimeUnit.HOURS);
-        this.scheduler.scheduleAtFixedRate(UpdaterManager.INSTANCE, 1, 60, TimeUnit.MINUTES);
         this.scheduler.scheduleAtFixedRate(DataManager.INSTANCE, 1, 1, TimeUnit.MINUTES);
         return true;
     }
 
     @Override
     public boolean unload(Gatekeeper<?> plugin) {
-        if (this.scheduler != null) {
-            this.scheduler.shutdown();
-        }
-        if (this.callbackExecutor != null) {
-            this.callbackExecutor.shutdown();
-        }
-        if (this.asyncExecutor != null) {
-            this.asyncExecutor.shutdown();
-        }
         if (this.httpClient != null) {
-            this.httpClient.close();
+            try {
+                this.httpClient.close();
+            } catch (Exception ignored) {}
+            this.httpClient = null;
         }
+
+        shutdown(this.scheduler);
+        shutdown(this.asyncExecutor);
+        shutdown(this.callbackExecutor);
+        this.scheduler = null;
+        this.asyncExecutor = null;
+        this.callbackExecutor = null;
         return true;
+    }
+
+    private static void shutdown(ExecutorService executor) {
+        if (executor == null) return;
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+                executor.awaitTermination(1, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException ex) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Override

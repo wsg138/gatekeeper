@@ -20,7 +20,7 @@ public class IpFilterModule extends AbstractModule {
 
     @Override
     public boolean handlePreLogin(GeoConnection connection) {
-        if (connection.isLocalhost()) return false;
+        if (connection.isLocalhost() || !connection.isIpv4()) return false;
 
         if (GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
             return true;
@@ -31,7 +31,8 @@ public class IpFilterModule extends AbstractModule {
 
     @Override
     public Object getKickMessage(GeoConnection connection) {
-        if (connection != null && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
+        if (connection != null && connection.isIpv4()
+                && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
             return this.torKickMessage;
         }
         return super.getKickMessage(connection);
@@ -39,7 +40,8 @@ public class IpFilterModule extends AbstractModule {
 
     @Override
     public String getDecisionCode(GeoConnection connection) {
-        if (connection != null && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
+        if (connection != null && connection.isIpv4()
+                && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
             return "tor";
         }
         return "manual_ip_block";
@@ -47,10 +49,11 @@ public class IpFilterModule extends AbstractModule {
 
     @Override
     public String getDecisionDetail(GeoConnection connection) {
-        if (connection != null && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
+        if (connection != null && connection.isIpv4()
+                && GeoipManager.INSTANCE.isBlacklistedProxy(connection.getAddressData())) {
             return "official Tor exit list";
         }
-        return "staff-managed IP filter";
+        return "staff-managed IPv4 filter";
     }
 
     @Override

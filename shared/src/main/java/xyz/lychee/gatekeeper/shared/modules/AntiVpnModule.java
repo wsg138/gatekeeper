@@ -26,13 +26,14 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 public class AntiVpnModule extends AbstractModule {
-    private final Map<Integer, CachedVerdict> checked = new ConcurrentHashMap<>();
-    private final Map<Integer, CompletableFuture<CachedVerdict>> pendingFutures = new ConcurrentHashMap<>();
+    private final Map<String, CachedVerdict> checked = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<CachedVerdict>> pendingFutures = new ConcurrentHashMap<>();
     private final AtomicInteger roundRobinIndex = new AtomicInteger(0);
     private final List<Provider> providers = new ArrayList<>();
     private final Map<AnonymizerType, Object> reasonKickMessages = new EnumMap<>(AnonymizerType.class);
@@ -51,49 +52,55 @@ public class AntiVpnModule extends AbstractModule {
 
     @Override
     public boolean handlePreLogin(GeoConnection connection) {
-        if (connection.isLocalhost() || this.providers.isEmpty() || this.checksPerPlayer <= 0) {
-            return false;
-        }
+        if (connection.isLocalhost() || this.providers.isEmpty() || this.checksPerPlayer <= 0) return false;
 
-        int id = connection.getAddressData();
-        CachedVerdict cached = this.getCachedVerdict(id);
+        String key = connection.getAddressKey();
+        CachedVerdict cached = this.getCachedVerdict(key);
         if (cached != null) return cached.blocked;
 
         CompletableFuture<CachedVerdict> ownFuture = new CompletableFuture<>();
-        CompletableFuture<CachedVerdict> existingFuture = this.pendingFutures.putIfAbsent(id, ownFuture);
-        if (existingFuture != null) return existingFuture.join().blocked;
+        CompletableFuture<CachedVerdict> existingFuture = this.pendingFutures.putIfAbsent(key, ownFuture);
+        if (existingFuture != null) {
+            try {
+                return existingFuture.get(this.timeout + 500L, TimeUnit.MILLISECONDS).blocked;
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return false;
+            } catch (Exception ex) {
+                return false;
+            }
+        }
 
         boolean acquired = false;
         try {
             if (this.semaphore != null) {
-                this.semaphore.acquire();
-                acquired = true;
+                acquired = this.semaphore.tryAcquire();
+                if (!acquired) {
+                    CachedVerdict failOpen = CachedVerdict.clean(
+                            System.currentTimeMillis() + this.incompleteCacheMillis,
+                            "check capacity exhausted; failed open"
+                    );
+                    this.checked.put(key, failOpen);
+                    ownFuture.complete(failOpen);
+                    return false;
+                }
             }
 
-            CachedVerdict verdict = this.checkAddress(connection.getAddress().getHostAddress());
-            this.checked.put(id, verdict);
+            CachedVerdict verdict = this.checkAddress(connection.getAddressKey());
+            this.checked.put(key, verdict);
             ownFuture.complete(verdict);
             return verdict.blocked;
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            CachedVerdict failOpen = CachedVerdict.clean(
-                    System.currentTimeMillis() + this.incompleteCacheMillis,
-                    "check interrupted; failed open"
-            );
-            this.checked.put(id, failOpen);
-            ownFuture.complete(failOpen);
-            return false;
         } catch (Throwable ex) {
             getGatekeeper().logger().log(Level.FINE, "AntiVPN check failed; allowing connection", ex);
             CachedVerdict failOpen = CachedVerdict.clean(
                     System.currentTimeMillis() + this.incompleteCacheMillis,
                     "check failed; failed open"
             );
-            this.checked.put(id, failOpen);
+            this.checked.put(key, failOpen);
             ownFuture.complete(failOpen);
             return false;
         } finally {
-            this.pendingFutures.remove(id, ownFuture);
+            this.pendingFutures.remove(key, ownFuture);
             if (acquired && this.semaphore != null) this.semaphore.release();
         }
     }
@@ -114,7 +121,6 @@ public class AntiVpnModule extends AbstractModule {
         int successfulChecks = 0;
         List<java.util.Set<AnonymizerType>> signals = new ArrayList<>(futures.size());
         List<String> providerDetails = new ArrayList<>(futures.size());
-
         for (CompletableFuture<ProviderResult> future : futures) {
             ProviderResult result = future.join();
             providerDetails.add(result.describe());
@@ -125,14 +131,9 @@ public class AntiVpnModule extends AbstractModule {
 
         AnonymizerConsensus.Decision decision = AnonymizerConsensus.decide(signals, this.blockThreshold);
         long now = System.currentTimeMillis();
-        long ttl;
-        if (decision.isBlocked()) {
-            ttl = this.blockedCacheMillis;
-        } else if (successfulChecks >= this.blockThreshold) {
-            ttl = this.cleanCacheMillis;
-        } else {
-            ttl = this.incompleteCacheMillis;
-        }
+        long ttl = decision.isBlocked()
+                ? this.blockedCacheMillis
+                : (successfulChecks >= this.blockThreshold ? this.cleanCacheMillis : this.incompleteCacheMillis);
 
         return new CachedVerdict(
                 decision.isBlocked(),
@@ -144,7 +145,6 @@ public class AntiVpnModule extends AbstractModule {
 
     private CompletableFuture<ProviderResult> performSingleCheck(Provider provider, String address) {
         String urlStr = provider.url.replace("%address%", address);
-
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(urlStr))
                 .timeout(Duration.ofMillis(this.timeout))
@@ -170,18 +170,18 @@ public class AntiVpnModule extends AbstractModule {
                 });
     }
 
-    private CachedVerdict getCachedVerdict(int id) {
-        CachedVerdict verdict = this.checked.get(id);
+    private CachedVerdict getCachedVerdict(String key) {
+        CachedVerdict verdict = this.checked.get(key);
         if (verdict == null) return null;
         if (verdict.expiresAtMillis > System.currentTimeMillis()) return verdict;
-        this.checked.remove(id, verdict);
+        this.checked.remove(key, verdict);
         return null;
     }
 
     @Override
     public Object getKickMessage(GeoConnection connection) {
         if (connection == null) return super.getKickMessage(null);
-        CachedVerdict verdict = this.getCachedVerdict(connection.getAddressData());
+        CachedVerdict verdict = this.getCachedVerdict(connection.getAddressKey());
         if (verdict == null || verdict.reason == null) return super.getKickMessage(connection);
         return this.reasonKickMessages.getOrDefault(verdict.reason, super.getKickMessage(connection));
     }
@@ -189,7 +189,7 @@ public class AntiVpnModule extends AbstractModule {
     @Override
     public String getDecisionCode(GeoConnection connection) {
         if (connection == null) return "antivpn";
-        CachedVerdict verdict = this.getCachedVerdict(connection.getAddressData());
+        CachedVerdict verdict = this.getCachedVerdict(connection.getAddressKey());
         if (verdict == null || verdict.reason == null) return "antivpn";
         return verdict.reason.getConfigKey();
     }
@@ -197,7 +197,7 @@ public class AntiVpnModule extends AbstractModule {
     @Override
     public String getDecisionDetail(GeoConnection connection) {
         if (connection == null) return "";
-        CachedVerdict verdict = this.getCachedVerdict(connection.getAddressData());
+        CachedVerdict verdict = this.getCachedVerdict(connection.getAddressKey());
         return verdict == null ? "" : verdict.detail;
     }
 
@@ -215,7 +215,6 @@ public class AntiVpnModule extends AbstractModule {
 
         int maxConcurrentChecks = this.getConfig().getInt("max_concurrent_checks");
         this.semaphore = maxConcurrentChecks > 0 ? new Semaphore(maxConcurrentChecks) : null;
-
         this.cleanCacheMillis = minutesToMillis(positiveOrDefault(this.getConfig().getInt("cache_clean_minutes"), 30));
         this.blockedCacheMillis = minutesToMillis(positiveOrDefault(this.getConfig().getInt("cache_blocked_minutes"), 15));
         this.incompleteCacheMillis = secondsToMillis(positiveOrDefault(this.getConfig().getInt("cache_incomplete_seconds"), 60));
@@ -229,7 +228,6 @@ public class AntiVpnModule extends AbstractModule {
         }
 
         this.providers.clear();
-        boolean needSave = false;
         Section checks = this.getConfig().getSection("checks");
         if (checks == null) return true;
 
@@ -240,11 +238,6 @@ public class AntiVpnModule extends AbstractModule {
             String url = section.getString("url");
             if (url == null || url.isBlank() || !section.getBoolean("enabled")) continue;
 
-            if (section.isString("condition")) {
-                section.set("condition.json", section.getString("condition"));
-                needSave = true;
-            }
-
             Map<String, String> headers = section.getStringList("headers", Collections.emptyList()).stream()
                     .map(header -> header.split(":", 2))
                     .filter(parts -> parts.length == 2)
@@ -254,18 +247,14 @@ public class AntiVpnModule extends AbstractModule {
                             (existing, replacement) -> replacement
                     ));
 
+            // The fork intentionally accepts only typed v2 signal definitions.
+            // Legacy single boolean conditions often mixed hosting/abuse with VPN
+            // evidence and are therefore ignored rather than trusted as blockers.
             Map<AnonymizerType, AbstractConditionSet> conditions = this.loadSignalConditions(section);
-            if (conditions.isEmpty()) {
-                AbstractConditionSet legacyCondition = this.loadLegacyCondition(section);
-                if (legacyCondition != null) conditions.put(AnonymizerType.ANONYMIZER, legacyCondition);
-            }
-
             if (!conditions.isEmpty()) {
                 this.providers.add(new Provider(Objects.toString(key), url, headers, conditions));
             }
         }
-
-        if (needSave) this.getYamlDocument().save();
         return true;
     }
 
@@ -277,27 +266,21 @@ public class AntiVpnModule extends AbstractModule {
         for (Object signalKey : signals.getKeys()) {
             AnonymizerType type = AnonymizerType.fromConfigKey(Objects.toString(signalKey));
             if (type == null) continue;
-
             Section signalSection = signals.getSection(Objects.toString(signalKey));
-            AbstractConditionSet condition = this.compileCondition(signalSection, "");
+            AbstractConditionSet condition = this.compileCondition(signalSection);
             if (condition != null) result.put(type, condition);
         }
         return result;
     }
 
-    private AbstractConditionSet loadLegacyCondition(Section providerSection) {
-        return this.compileCondition(providerSection, "condition.");
-    }
-
-    private AbstractConditionSet compileCondition(Section section, String prefix) {
+    private AbstractConditionSet compileCondition(Section section) {
         if (section == null) return null;
-
-        if (section.contains(prefix + "json")) {
-            String expression = section.getString(prefix + "json");
+        if (section.contains("json")) {
+            String expression = section.getString("json");
             if (expression != null) return JsonConditionSet.compile(expression);
         }
-        if (section.contains(prefix + "text")) {
-            String expression = section.getString(prefix + "text");
+        if (section.contains("text")) {
+            String expression = section.getString("text");
             if (expression != null) return TextConditionSet.compile(expression);
         }
         return null;

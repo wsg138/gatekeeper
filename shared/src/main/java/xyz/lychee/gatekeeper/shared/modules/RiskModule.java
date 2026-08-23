@@ -34,11 +34,17 @@ public class RiskModule extends AbstractModule {
         if (score >= this.logScore || wouldBlock) {
             String action = wouldBlock ? (this.enforce ? "BLOCK" : "SHADOW_BLOCK") : "ALLOW";
             this.getGatekeeper().logger().info(
-                    "Connection risk for " + connection.getAddress().getHostAddress() + "/" + connection.getName()
+                    "Connection risk for " + connection.getAddressKey() + "/" + connection.getName()
                             + ": score=" + score
                             + ", action=" + action
                             + ", signals=[" + describe(assessment.getSignals()) + "]"
             );
+        }
+
+        if (wouldBlock && !this.enforce) {
+            connection.setDiagnosticAction("SHADOW_BLOCK");
+            connection.setDiagnosticReason(this.getDecisionCode(connection));
+            connection.setDiagnosticDetail(this.getDecisionDetail(connection));
         }
 
         return this.enforce && wouldBlock;

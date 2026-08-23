@@ -21,15 +21,13 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Downloads reputation-only network intelligence. Unlike GeoipManager's hard
- * block set, matches from this manager never directly deny a connection.
- */
+/** Downloads reputation-only intelligence. Matches from this manager never directly deny a connection. */
 public class ReputationManager extends AbstractManager implements Runnable {
     public static final ReputationManager INSTANCE = new ReputationManager();
 
@@ -37,6 +35,7 @@ public class ReputationManager extends AbstractManager implements Runnable {
     private static final Pattern IP_PATTERN = Pattern.compile(
             "(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})(?:/(\\d{1,2}))?"
     );
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(8);
 
     private static final RiskSignalType[] IP_TYPES = {
             RiskSignalType.REPUTATION_VPN_IP,
@@ -53,21 +52,28 @@ public class ReputationManager extends AbstractManager implements Runnable {
     };
 
     private final Map<RiskSignalType, List<String>> sources = new EnumMap<>(RiskSignalType.class);
+    private final AtomicLong generation = new AtomicLong();
     private volatile Map<RiskSignalType, IpMatcher> ipMatchers = Collections.emptyMap();
     private volatile Map<RiskSignalType, IntOpenHashSet> asnMatchers = Collections.emptyMap();
+    private volatile boolean active;
     private Logger logger;
 
     @Override
     public boolean load(Gatekeeper<?> plugin) {
         this.logger = plugin.logger();
-        this.loadSources();
-        this.refresh().join();
+        this.active = true;
+        long current = this.loadSources();
+        this.refresh(current).join();
         return true;
     }
 
     @Override
     public boolean unload(Gatekeeper<?> plugin) {
-        this.sources.clear();
+        this.active = false;
+        this.generation.incrementAndGet();
+        synchronized (this.sources) {
+            this.sources.clear();
+        }
         this.ipMatchers = Collections.emptyMap();
         this.asnMatchers = Collections.emptyMap();
         return true;
@@ -75,55 +81,71 @@ public class ReputationManager extends AbstractManager implements Runnable {
 
     @Override
     public boolean reload(Gatekeeper<?> plugin) {
-        this.loadSources();
-        this.refresh().join();
+        long current = this.loadSources();
+        // Configuration changes fail open while new scoring-only data downloads.
+        this.ipMatchers = Collections.emptyMap();
+        this.asnMatchers = Collections.emptyMap();
+        this.refresh(current);
         return true;
     }
 
     @Override
     public void run() {
-        this.refresh();
+        if (this.active) this.refresh(this.generation.get());
     }
 
-    private void loadSources() {
-        this.sources.clear();
+    private long loadSources() {
         YamlDocument yaml = ConfigManager.INSTANCE.getYaml();
-
-        for (RiskSignalType type : IP_TYPES) {
-            this.sources.put(
-                    type,
-                    new ArrayList<>(yaml.getStringList("main.reputation.sources." + type.getConfigKey()))
-            );
+        synchronized (this.sources) {
+            this.sources.clear();
+            for (RiskSignalType type : IP_TYPES) {
+                this.sources.put(type, new ArrayList<>(
+                        yaml.getStringList("main.reputation.sources." + type.getConfigKey())
+                ));
+            }
+            for (RiskSignalType type : ASN_TYPES) {
+                this.sources.put(type, new ArrayList<>(
+                        yaml.getStringList("main.reputation.sources." + type.getConfigKey())
+                ));
+            }
         }
-        for (RiskSignalType type : ASN_TYPES) {
-            this.sources.put(
-                    type,
-                    new ArrayList<>(yaml.getStringList("main.reputation.sources." + type.getConfigKey()))
-            );
-        }
+        this.active = true;
+        return this.generation.incrementAndGet();
     }
 
     public CompletableFuture<Void> refresh() {
+        return this.refresh(this.generation.get());
+    }
+
+    private CompletableFuture<Void> refresh(long refreshGeneration) {
+        Map<RiskSignalType, List<String>> sourceSnapshot = new EnumMap<>(RiskSignalType.class);
+        synchronized (this.sources) {
+            for (Map.Entry<RiskSignalType, List<String>> entry : this.sources.entrySet()) {
+                sourceSnapshot.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+            }
+        }
+
         Map<RiskSignalType, IpMatcher> nextIp = new ConcurrentHashMap<>();
         Map<RiskSignalType, IntOpenHashSet> nextAsn = new ConcurrentHashMap<>();
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         for (RiskSignalType type : IP_TYPES) {
-            List<String> typeSources = this.sources.getOrDefault(type, Collections.emptyList());
-            futures.add(this.downloadIpMatcher(type, typeSources).thenAccept(matcher -> {
-                if (matcher != null) nextIp.put(type, matcher);
-            }));
+            futures.add(this.downloadIpMatcher(type, sourceSnapshot.getOrDefault(type, Collections.emptyList()))
+                    .thenAccept(matcher -> {
+                        if (matcher != null) nextIp.put(type, matcher);
+                    }));
         }
-
         for (RiskSignalType type : ASN_TYPES) {
-            List<String> typeSources = this.sources.getOrDefault(type, Collections.emptyList());
-            futures.add(this.downloadAsnMatcher(type, typeSources).thenAccept(matcher -> {
-                if (matcher != null) nextAsn.put(type, matcher);
-            }));
+            futures.add(this.downloadAsnMatcher(type, sourceSnapshot.getOrDefault(type, Collections.emptyList()))
+                    .thenAccept(matcher -> {
+                        if (matcher != null) nextAsn.put(type, matcher);
+                    }));
         }
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenRun(() -> {
+                    if (!this.active || this.generation.get() != refreshGeneration) return;
+
                     Map<RiskSignalType, IpMatcher> ipSnapshot = new EnumMap<>(RiskSignalType.class);
                     ipSnapshot.putAll(this.ipMatchers);
                     ipSnapshot.putAll(nextIp);
@@ -136,13 +158,9 @@ public class ReputationManager extends AbstractManager implements Runnable {
                     this.asnMatchers = Collections.unmodifiableMap(asnSnapshot);
 
                     int ipEntries = 0;
-                    for (IpMatcher matcher : this.ipMatchers.values()) {
-                        ipEntries += matcher.sizeEstimate();
-                    }
+                    for (IpMatcher matcher : this.ipMatchers.values()) ipEntries += matcher.sizeEstimate();
                     int asnEntries = 0;
-                    for (IntOpenHashSet set : this.asnMatchers.values()) {
-                        asnEntries += set.size();
-                    }
+                    for (IntOpenHashSet set : this.asnMatchers.values()) asnEntries += set.size();
                     this.logger.info(" &8• &rRefreshed reputation intelligence: "
                             + ipEntries + " IP/range entries and " + asnEntries + " ASN entries.");
                 });
@@ -154,21 +172,16 @@ public class ReputationManager extends AbstractManager implements Runnable {
         Map<RiskSignalType, IpMatcher> ipSnapshot = this.ipMatchers;
         for (RiskSignalType type : IP_TYPES) {
             IpMatcher matcher = ipSnapshot.get(type);
-            if (matcher != null && matcher.contains(ip)) {
-                matches.add(type);
-            }
+            if (matcher != null && matcher.contains(ip)) matches.add(type);
         }
 
         if (asn > 0) {
             Map<RiskSignalType, IntOpenHashSet> asnSnapshot = this.asnMatchers;
             for (RiskSignalType type : ASN_TYPES) {
                 IntOpenHashSet matcher = asnSnapshot.get(type);
-                if (matcher != null && matcher.contains(asn)) {
-                    matches.add(type);
-                }
+                if (matcher != null && matcher.contains(asn)) matches.add(type);
             }
         }
-
         return matches;
     }
 
@@ -181,43 +194,42 @@ public class ReputationManager extends AbstractManager implements Runnable {
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         for (String source : typeSources) {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(source))
-                    .timeout(Duration.ofSeconds(8))
-                    .header("User-Agent", "Gatekeeper-Enthusia/1.7")
-                    .GET()
-                    .build();
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(source))
+                        .timeout(REQUEST_TIMEOUT)
+                        .header("User-Agent", "Gatekeeper-Enthusia/1.7")
+                        .GET()
+                        .build();
 
-            futures.add(TaskManager.INSTANCE.getHttpClient()
-                    .sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() != 200) return;
-                        successes.incrementAndGet();
+                futures.add(TaskManager.INSTANCE.getHttpClient()
+                        .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                        .thenAccept(response -> {
+                            if (response.statusCode() != 200) return;
+                            successes.incrementAndGet();
 
-                        IntOpenHashSet localExact = new IntOpenHashSet();
-                        List<GeoRange<Void>> localRanges = new ArrayList<>();
-                        parseIpBody(response.body(), localExact, localRanges);
-
-                        synchronized (exact) {
-                            exact.addAll(localExact);
-                        }
-                        synchronized (ranges) {
-                            ranges.addAll(localRanges);
-                        }
-                    })
-                    .exceptionally(ex -> {
-                        this.logger.log(Level.FINE, "Reputation source failed: " + source, ex);
-                        return null;
-                    }));
+                            IntOpenHashSet localExact = new IntOpenHashSet();
+                            List<GeoRange<Void>> localRanges = new ArrayList<>();
+                            parseIpBody(response.body(), localExact, localRanges);
+                            synchronized (exact) {
+                                exact.addAll(localExact);
+                            }
+                            synchronized (ranges) {
+                                ranges.addAll(localRanges);
+                            }
+                        })
+                        .exceptionally(ex -> {
+                            this.logger.log(Level.FINE, "Reputation source failed: " + source, ex);
+                            return null;
+                        }));
+            } catch (RuntimeException ex) {
+                this.logger.log(Level.FINE, "Invalid reputation source: " + source, ex);
+            }
         }
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(ignored -> {
-                    if (successes.get() == 0) {
-                        this.logger.fine("No reputation sources responded for " + type.getConfigKey()
-                                + "; keeping the previous data set.");
-                        return null;
-                    }
+                    if (successes.get() == 0) return null;
                     return new IpMatcher(exact, mergeRanges(ranges));
                 });
     }
@@ -230,55 +242,50 @@ public class ReputationManager extends AbstractManager implements Runnable {
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         for (String source : typeSources) {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(source))
-                    .timeout(Duration.ofSeconds(8))
-                    .header("User-Agent", "Gatekeeper-Enthusia/1.7")
-                    .GET()
-                    .build();
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(source))
+                        .timeout(REQUEST_TIMEOUT)
+                        .header("User-Agent", "Gatekeeper-Enthusia/1.7")
+                        .GET()
+                        .build();
 
-            futures.add(TaskManager.INSTANCE.getHttpClient()
-                    .sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() != 200) return;
-                        successes.incrementAndGet();
+                futures.add(TaskManager.INSTANCE.getHttpClient()
+                        .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                        .thenAccept(response -> {
+                            if (response.statusCode() != 200) return;
+                            successes.incrementAndGet();
 
-                        IntOpenHashSet local = new IntOpenHashSet();
-                        String[] lines = response.body().split("\\R");
-                        for (String line : lines) {
-                            String clean = stripComment(line);
-                            if (clean.isEmpty()) continue;
-                            Matcher matcher = ASN_PATTERN.matcher(clean);
-                            while (matcher.find()) {
-                                try {
-                                    local.add(Integer.parseInt(matcher.group(1)));
-                                } catch (NumberFormatException ignored) {}
+                            IntOpenHashSet local = new IntOpenHashSet();
+                            for (String line : response.body().split("\\R")) {
+                                String clean = stripComment(line);
+                                if (clean.isEmpty()) continue;
+                                Matcher matcher = ASN_PATTERN.matcher(clean);
+                                while (matcher.find()) {
+                                    try {
+                                        local.add(Integer.parseInt(matcher.group(1)));
+                                    } catch (NumberFormatException ignored) {}
+                                }
                             }
-                        }
-                        synchronized (output) {
-                            output.addAll(local);
-                        }
-                    })
-                    .exceptionally(ex -> {
-                        this.logger.log(Level.FINE, "Reputation ASN source failed: " + source, ex);
-                        return null;
-                    }));
+                            synchronized (output) {
+                                output.addAll(local);
+                            }
+                        })
+                        .exceptionally(ex -> {
+                            this.logger.log(Level.FINE, "Reputation ASN source failed: " + source, ex);
+                            return null;
+                        }));
+            } catch (RuntimeException ex) {
+                this.logger.log(Level.FINE, "Invalid reputation ASN source: " + source, ex);
+            }
         }
 
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApply(ignored -> {
-                    if (successes.get() == 0) {
-                        this.logger.fine("No reputation ASN sources responded for " + type.getConfigKey()
-                                + "; keeping the previous data set.");
-                        return null;
-                    }
-                    return output;
-                });
+                .thenApply(ignored -> successes.get() == 0 ? null : output);
     }
 
     private static void parseIpBody(String body, IntOpenHashSet exact, List<GeoRange<Void>> ranges) {
-        String[] lines = body.split("\\R");
-        for (String line : lines) {
+        for (String line : body.split("\\R")) {
             String clean = stripComment(line);
             if (clean.isEmpty()) continue;
 
@@ -307,7 +314,6 @@ public class ReputationManager extends AbstractManager implements Runnable {
                 int mask = prefix == 0 ? 0 : 0xFFFFFFFF << (32 - prefix);
                 int start = ip & mask;
                 int end = start | ~mask;
-
                 if (overlapsLoopback(start, end)) continue;
                 if (start == end) exact.add(start);
                 else ranges.add(new GeoRange<>(start, end, null));
@@ -327,22 +333,20 @@ public class ReputationManager extends AbstractManager implements Runnable {
                 && Integer.compareUnsigned(end, loopbackStart) >= 0;
     }
 
-    private static List<GeoRange<Void>> mergeRanges(List<GeoRange<Void>> ranges) {
-        if (ranges.isEmpty()) return Collections.emptyList();
-
+    private static List<GeoRange<Void>> mergeRanges(List<GeoRange<Void>> input) {
+        if (input.isEmpty()) return Collections.emptyList();
+        List<GeoRange<Void>> ranges = new ArrayList<>(input);
         ranges.sort((a, b) -> Integer.compareUnsigned(a.getStart(), b.getStart()));
+
         List<GeoRange<Void>> merged = new ArrayList<>();
         GeoRange<Void> current = ranges.get(0);
-
         for (int i = 1; i < ranges.size(); i++) {
             GeoRange<Void> next = ranges.get(i);
             boolean overlaps = Integer.compareUnsigned(next.getStart(), current.getEnd()) <= 0;
             boolean adjacent = current.getEnd() != -1 && next.getStart() == current.getEnd() + 1;
-
             if (overlaps || adjacent) {
                 int end = Integer.compareUnsigned(current.getEnd(), next.getEnd()) >= 0
-                        ? current.getEnd()
-                        : next.getEnd();
+                        ? current.getEnd() : next.getEnd();
                 current = new GeoRange<>(current.getStart(), end, null);
             } else {
                 merged.add(current);

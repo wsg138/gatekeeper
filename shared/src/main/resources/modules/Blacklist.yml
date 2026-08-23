@@ -1,11 +1,11 @@
 enabled: true
 priority: 1
-log: "Connection from %address%/%name% rejected: player found on blacklist! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
+log: "Connection from %address%/%name% rejected: staff blacklist matched! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
 kick:
   - "%prefix%"
   - ""
-  - "&#FF5555This network has been blocked by server staff."
-  - "&#C7C7C7You cannot connect from this IP address."
+  - "&#FF5555You are blocked from connecting to this server."
+  - "&#C7C7C7Your account, network, or provider matches a staff-managed block."
   - ""
   - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
 values: { }

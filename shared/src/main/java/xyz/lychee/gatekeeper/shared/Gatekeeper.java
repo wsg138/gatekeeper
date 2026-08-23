@@ -54,7 +54,11 @@ public interface Gatekeeper<T> {
         this.logger().sendHeader(this);
 
         TimingUtil t = new TimingUtil();
-        for (AbstractManager manager : MANAGERS) {
+        // Managers are loaded in dependency order, so shut them down in reverse.
+        // This keeps modules/network tasks alive until their dependents are gone and
+        // leaves TaskManager available until all async-capable managers have stopped.
+        for (int i = MANAGERS.length - 1; i >= 0; i--) {
+            AbstractManager manager = MANAGERS[i];
             try {
                 this.logger().info("&8(&b" + manager.getClass().getSimpleName() + "&8) &7-> &fDisabling manager...");
                 t.start();

@@ -25,6 +25,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -52,37 +53,38 @@ public class DataManager extends AbstractManager implements Runnable {
         this.dataPath = new File(plugin.dataFolder(), "data.json").toPath();
         Files.createDirectories(this.dataPath.getParent());
 
-        this.clearMemory();
         if (Files.exists(this.dataPath)) {
-            this.loadDataFile();
+            this.applyLoadedData(this.readDataFile());
+        } else {
+            this.clearMemory();
         }
         return true;
     }
 
     @Override
     public synchronized boolean unload(Gatekeeper<?> plugin) {
-        // Staff whitelist/blacklist changes are security state, so force a final
-        // write instead of relying on the periodic one-minute save happening first.
         this.saveDataFile();
         return true;
     }
 
     @Override
     public synchronized boolean reload(Gatekeeper<?> plugin) throws IOException, JsonParserException {
-        this.clearMemory();
         if (Files.exists(this.dataPath)) {
-            this.loadDataFile();
+            // Parse completely before replacing the live maps. A corrupt reload
+            // therefore leaves the last known-good security state untouched.
+            LoadedData loaded = this.readDataFile();
+            this.applyLoadedData(loaded);
+        } else {
+            this.clearMemory();
         }
         return true;
     }
 
-    private void clearMemory() {
-        this.addresses.clear();
-        this.nicknames.clear();
-        this.asns.clear();
-    }
+    private LoadedData readDataFile() throws IOException, JsonParserException {
+        Int2ByteOpenHashMap loadedAddresses = new Int2ByteOpenHashMap();
+        Int2ByteOpenHashMap loadedAsns = new Int2ByteOpenHashMap();
+        Object2ByteOpenHashMap<String> loadedNicknames = new Object2ByteOpenHashMap<>();
 
-    private void loadDataFile() throws IOException, JsonParserException {
         try (InputStream is = Files.newInputStream(this.dataPath)) {
             JsonObject json = JsonParser.object().from(is);
 
@@ -92,7 +94,7 @@ public class DataManager extends AbstractManager implements Runnable {
                     try {
                         Object value = entry.getValue();
                         if (value instanceof Number) {
-                            this.addresses.put(Integer.parseInt(entry.getKey()), ((Number) value).byteValue());
+                            loadedAddresses.put(Integer.parseInt(entry.getKey()), ((Number) value).byteValue());
                         }
                     } catch (NumberFormatException ignored) {}
                 }
@@ -103,7 +105,7 @@ public class DataManager extends AbstractManager implements Runnable {
                 for (Map.Entry<String, Object> entry : nicknamesObj.entrySet()) {
                     Object value = entry.getValue();
                     if (value instanceof Number) {
-                        this.nicknames.put(entry.getKey(), ((Number) value).byteValue());
+                        loadedNicknames.put(normalizeNickname(entry.getKey()), ((Number) value).byteValue());
                     }
                 }
             }
@@ -114,12 +116,28 @@ public class DataManager extends AbstractManager implements Runnable {
                     try {
                         Object value = entry.getValue();
                         if (value instanceof Number) {
-                            this.asns.put(Integer.parseInt(entry.getKey()), ((Number) value).byteValue());
+                            int asn = Integer.parseInt(entry.getKey());
+                            if (asn > 0) loadedAsns.put(asn, ((Number) value).byteValue());
                         }
                     } catch (NumberFormatException ignored) {}
                 }
             }
         }
+
+        return new LoadedData(loadedAddresses, loadedAsns, loadedNicknames);
+    }
+
+    private void applyLoadedData(LoadedData loaded) {
+        this.clearMemory();
+        this.addresses.putAll(loaded.addresses);
+        this.asns.putAll(loaded.asns);
+        this.nicknames.putAll(loaded.nicknames);
+    }
+
+    private void clearMemory() {
+        this.addresses.clear();
+        this.nicknames.clear();
+        this.asns.clear();
     }
 
     public synchronized void saveDataFile() {
@@ -155,26 +173,31 @@ public class DataManager extends AbstractManager implements Runnable {
     }
 
     public synchronized void updateAddress(int addressData, byte accessType) {
-        this.addresses.put(addressData, accessType);
+        if (accessType == 0) this.addresses.remove(addressData);
+        else this.addresses.put(addressData, accessType);
         this.saveDataFile();
     }
 
     public synchronized void updateAsn(int asn, byte accessType) {
-        this.asns.put(asn, accessType);
+        if (asn <= 0) return;
+        if (accessType == 0) this.asns.remove(asn);
+        else this.asns.put(asn, accessType);
         this.saveDataFile();
     }
 
     public synchronized void updateNickname(String nickname, byte accessType) {
-        this.nicknames.put(nickname, accessType);
+        String normalized = normalizeNickname(nickname);
+        if (accessType == 0) this.nicknames.removeByte(normalized);
+        else this.nicknames.put(normalized, accessType);
         this.saveDataFile();
     }
 
-    public boolean updateAndCheckAccess(GeoConnection connection, EnumAccess targetAccess) {
-        byte access = this.nicknames.getByte(connection.getName());
-        if (access == 0) {
+    public synchronized boolean updateAndCheckAccess(GeoConnection connection, EnumAccess targetAccess) {
+        byte access = this.nicknames.getByte(normalizeNickname(connection.getName()));
+        if (access == 0 && connection.isIpv4()) {
             access = this.addresses.get(connection.getAddressData());
         }
-        if (access == 0) {
+        if (access == 0 && connection.getAsn() > 0) {
             access = this.asns.get(connection.getAsn());
         }
         if (access != 0) {
@@ -184,20 +207,40 @@ public class DataManager extends AbstractManager implements Runnable {
         return false;
     }
 
-    public byte resolveAccess(String target) {
+    public synchronized byte resolveAccess(String target) {
         if (AddressUtils.isIpv4(target)) {
             int addressData = AddressUtils.ipv4ToInt(target);
             return this.addresses.getOrDefault(addressData, (byte) 0);
         } else if (MathUtils.isInteger(target)) {
             int asn = Integer.parseInt(target);
-            return this.asns.getOrDefault(asn, (byte) 0);
+            return asn > 0 ? this.asns.getOrDefault(asn, (byte) 0) : 0;
         } else {
-            return this.nicknames.getOrDefault(target, (byte) 0);
+            return this.nicknames.getOrDefault(normalizeNickname(target), (byte) 0);
         }
     }
 
     @Override
     public void run() {
         this.saveDataFile();
+    }
+
+    private static String normalizeNickname(String nickname) {
+        return nickname == null ? "" : nickname.toLowerCase(Locale.ROOT);
+    }
+
+    private static final class LoadedData {
+        private final Int2ByteOpenHashMap addresses;
+        private final Int2ByteOpenHashMap asns;
+        private final Object2ByteOpenHashMap<String> nicknames;
+
+        private LoadedData(
+                Int2ByteOpenHashMap addresses,
+                Int2ByteOpenHashMap asns,
+                Object2ByteOpenHashMap<String> nicknames
+        ) {
+            this.addresses = addresses;
+            this.asns = asns;
+            this.nicknames = nicknames;
+        }
     }
 }

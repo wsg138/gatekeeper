@@ -9,10 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Short-lived staff diagnostics for recent connection decisions.
- * Data is intentionally memory-only and expires automatically.
- */
+/** Short-lived, memory-only staff diagnostics for recent connection decisions. */
 public class SecurityHistoryManager extends AbstractManager {
     public static final SecurityHistoryManager INSTANCE = new SecurityHistoryManager();
 
@@ -23,9 +20,7 @@ public class SecurityHistoryManager extends AbstractManager {
     private final Map<String, SecuritySnapshot> byAddress = new ConcurrentHashMap<>();
 
     @Override
-    public boolean load(Gatekeeper<?> plugin) {
-        return true;
-    }
+    public boolean load(Gatekeeper<?> plugin) { return true; }
 
     @Override
     public boolean unload(Gatekeeper<?> plugin) {
@@ -46,7 +41,7 @@ public class SecurityHistoryManager extends AbstractManager {
         long now = System.currentTimeMillis();
         SecuritySnapshot snapshot = new SecuritySnapshot(
                 connection.getName(),
-                connection.getAddress().getHostAddress(),
+                connection.getAddressKey(),
                 connection.getAsn(),
                 connection.getCountry(),
                 action,
@@ -70,9 +65,10 @@ public class SecurityHistoryManager extends AbstractManager {
         if (target == null || target.isBlank()) return null;
         this.prune();
 
-        SecuritySnapshot byIp = this.byAddress.get(target.trim());
+        String key = target.trim().toLowerCase(Locale.ROOT);
+        SecuritySnapshot byIp = this.byAddress.get(key);
         if (byIp != null) return byIp;
-        return this.byName.get(target.trim().toLowerCase(Locale.ROOT));
+        return this.byName.get(key);
     }
 
     private void prune() {
