@@ -59,15 +59,21 @@ values:
   cache_incomplete_seconds: 60
 
   checks:
-    # proxycheck.io v1 classifies VPNs/proxies together as proxy=yes, so this is
-    # intentionally a generic anonymizer signal rather than pretending it knows
-    # whether the connection is specifically a VPN or proxy.
+    # proxycheck.io v3 is the current stable API. It reports VPN, proxy and Tor
+    # separately and applies conservative freshness rules by default to suppress
+    # stale residential/CGNAT detections. Do not add a days= override here; the
+    # provider's shorter automatic TTLs are intentional for false-positive safety.
+    # No key: 100 queries/day. A free key raises this to 1,000/day.
     proxycheck_io:
       enabled: true
-      url: "https://proxycheck.io/v1/%address%"
+      url: "https://proxycheck.io/v3/%address%?short=1&tag=0&p=0"
       signals:
-        anonymizer:
-          json: "proxy=yes"
+        vpn:
+          json: "detections:vpn=true"
+        proxy:
+          json: "detections:proxy=true"
+        tor:
+          json: "detections:tor=true"
 
     # No key required. Only the explicit proxy flag is allowed to vote.
     # The broader hosting flag is intentionally ignored to prevent false positives.

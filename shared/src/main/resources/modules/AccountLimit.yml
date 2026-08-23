@@ -10,11 +10,13 @@ kick:
   - "&#8A8A8AIf this is a shared network and you believe this is a mistake, open a ticket in our Discord."
 
 values:
-  # Simultaneous account policy. Raised above the old default of 3 to reduce
-  # false positives for families/shared networks.
-  per_ip_limit: 5
+  # Last-resort simultaneous-account ceiling. This is intentionally high because
+  # families, dorms, schools and CGNAT can legitimately share one public IP.
+  # Set to 0 to disable this hard cap entirely.
+  per_ip_limit: 12
 
-  # Rolling account velocity is risk context, not an automatic block.
+  # Rolling account velocity is risk context, not an automatic block. It becomes
+  # actionable only when the central risk policy also has enough supporting evidence.
   velocity_window_minutes: 10
   risk_unique_accounts: 6
   risk_points: 50
