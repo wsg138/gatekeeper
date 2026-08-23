@@ -8,5 +8,13 @@ kick:
   - "&#C7C7C7Disconnect another account and try again."
   - ""
   - "&#8A8A8AIf this is a shared network and you believe this is a mistake, open a ticket in our Discord."
+
 values:
-  per_ip_limit: 3
+  # Simultaneous account policy. Raised above the old default of 3 to reduce
+  # false positives for families/shared networks.
+  per_ip_limit: 5
+
+  # Rolling account velocity is risk context, not an automatic block.
+  velocity_window_minutes: 10
+  risk_unique_accounts: 6
+  risk_points: 50

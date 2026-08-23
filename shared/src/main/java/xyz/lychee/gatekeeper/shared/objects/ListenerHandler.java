@@ -6,36 +6,33 @@ import xyz.lychee.gatekeeper.shared.util.AddressUtils;
 import xyz.lychee.gatekeeper.shared.util.TimingUtil;
 
 import java.net.InetAddress;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
 public class ListenerHandler {
     private static final LongAdder CHECKS = new LongAdder();
     private static final LongAdder DETECTIONS = new LongAdder();
-    private final Map<Integer, GeoConnection> connections = new ConcurrentHashMap<>();
 
     public void handleDisconnect(InetAddress address, String name) {
         int addressData = AddressUtils.ipv4ToInt(address);
-        GeoConnection connection = this.connections.computeIfAbsent(addressData, k -> new GeoConnection(address, addressData, name));
-        for (AbstractModule ac : ModuleManager.INSTANCE.getLoadedChecks()) {
-            ac.handleDisconnect(connection);
+        GeoConnection connection = new GeoConnection(address, addressData, name);
+        for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
+            module.handleDisconnect(connection);
         }
     }
 
     public void handlePostLogin(InetAddress address, String name) {
         int addressData = AddressUtils.ipv4ToInt(address);
-        GeoConnection connection = this.connections.computeIfAbsent(addressData, k -> new GeoConnection(address, addressData, name));
-        for (AbstractModule ac : ModuleManager.INSTANCE.getLoadedChecks()) {
-            ac.handlePostLogin(connection);
+        GeoConnection connection = new GeoConnection(address, addressData, name);
+        for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
+            module.handlePostLogin(connection);
         }
     }
 
     public Object handlePreLogin(InetAddress address, String name) {
-        TimingUtil t = TimingUtil.startNew();
+        TimingUtil timer = TimingUtil.startNew();
 
         int addressData = AddressUtils.ipv4ToInt(address);
-        GeoConnection connection = this.connections.computeIfAbsent(addressData, k -> new GeoConnection(address, addressData, name));
+        GeoConnection connection = new GeoConnection(address, addressData, name);
         connection.setTimestamp(System.currentTimeMillis());
         CHECKS.increment();
 
@@ -43,11 +40,11 @@ public class ListenerHandler {
             return null;
         }
 
-        for (AbstractModule check : ModuleManager.INSTANCE.getLoadedChecks()) {
-            if (check.handlePreLogin(connection)) {
+        for (AbstractModule module : ModuleManager.INSTANCE.getLoadedChecks()) {
+            if (module.handlePreLogin(connection)) {
                 DETECTIONS.increment();
-                check.printCheck(connection, t);
-                return check.getKickMessage(connection);
+                module.printCheck(connection, timer);
+                return module.getKickMessage(connection);
             }
         }
         return null;

@@ -26,7 +26,8 @@ public class ModuleManager extends AbstractManager {
                 new RateLimitModule(plugin),
                 new ReputationModule(plugin),
                 new AntiVpnModule(plugin),
-                new IpFilterModule(plugin)
+                new IpFilterModule(plugin),
+                new RiskModule(plugin)
         );
         this.reload(plugin);
         return true;
