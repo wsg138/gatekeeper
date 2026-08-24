@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
@@ -50,8 +51,8 @@ public class DataManager extends AbstractManager implements Runnable {
     @Override
     public synchronized boolean load(Gatekeeper<?> plugin) throws IOException, JsonParserException {
         this.logger = plugin.logger();
-        this.dataPath = new File(plugin.dataFolder(), "data.json").toPath();
-        Files.createDirectories(this.dataPath.getParent());
+        this.dataPath = new File(plugin.dataFolder(), "data.json").toPath().toAbsolutePath().normalize();
+        this.ensureStorageDirectory();
 
         if (Files.exists(this.dataPath)) {
             this.applyLoadedData(this.readDataFile());
@@ -70,8 +71,6 @@ public class DataManager extends AbstractManager implements Runnable {
     @Override
     public synchronized boolean reload(Gatekeeper<?> plugin) throws IOException, JsonParserException {
         if (Files.exists(this.dataPath)) {
-            // Parse completely before replacing the live maps. A corrupt reload
-            // therefore leaves the last known-good security state untouched.
             LoadedData loaded = this.readDataFile();
             this.applyLoadedData(loaded);
         } else {
@@ -148,28 +147,62 @@ public class DataManager extends AbstractManager implements Runnable {
         json.put("asns", this.asns);
         json.put("nicknames", this.nicknames);
 
-        Path tempPath = this.dataPath.resolveSibling(this.dataPath.getFileName() + ".tmp");
         try {
-            Files.createDirectories(this.dataPath.getParent());
-            Files.writeString(tempPath, JsonWriter.string(json));
-            try {
-                Files.move(
-                        tempPath,
-                        this.dataPath,
-                        StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING
-                );
-            } catch (AtomicMoveNotSupportedException ignored) {
-                Files.move(tempPath, this.dataPath, StandardCopyOption.REPLACE_EXISTING);
-            }
+            this.writeDataFileWithRecovery(JsonWriter.string(json));
         } catch (IOException ex) {
-            try {
-                Files.deleteIfExists(tempPath);
-            } catch (IOException ignored) {}
             if (this.logger != null) {
-                this.logger.log(Level.SEVERE, "Failed to save database file " + this.dataPath.getFileName(), ex);
+                this.logger.log(Level.SEVERE, "Failed to save database file " + this.dataPath, ex);
             }
         }
+    }
+
+    private void writeDataFileWithRecovery(String contents) throws IOException {
+        IOException firstMissingPathFailure = null;
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            Path tempPath = this.dataPath.resolveSibling(this.dataPath.getFileName() + ".tmp");
+            try {
+                this.ensureStorageDirectory();
+                Files.writeString(tempPath, contents);
+                this.moveIntoPlace(tempPath);
+                return;
+            } catch (NoSuchFileException ex) {
+                this.deleteTempQuietly(tempPath);
+                if (attempt == 0) {
+                    firstMissingPathFailure = ex;
+                    continue;
+                }
+                if (firstMissingPathFailure != null) ex.addSuppressed(firstMissingPathFailure);
+                throw ex;
+            } catch (IOException ex) {
+                this.deleteTempQuietly(tempPath);
+                throw ex;
+            }
+        }
+    }
+
+    private void ensureStorageDirectory() throws IOException {
+        Path parent = this.dataPath.getParent();
+        if (parent != null) Files.createDirectories(parent);
+    }
+
+    private void moveIntoPlace(Path tempPath) throws IOException {
+        try {
+            Files.move(
+                    tempPath,
+                    this.dataPath,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(tempPath, this.dataPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private void deleteTempQuietly(Path tempPath) {
+        try {
+            Files.deleteIfExists(tempPath);
+        } catch (IOException ignored) {}
     }
 
     public synchronized void updateAddress(int addressData, byte accessType) {
