@@ -4,17 +4,21 @@ import org.jetbrains.annotations.NotNull;
 import xyz.lychee.gatekeeper.shared.Gatekeeper;
 import xyz.lychee.gatekeeper.shared.command.PermissibleCommand;
 import xyz.lychee.gatekeeper.shared.manager.DataManager;
+import xyz.lychee.gatekeeper.shared.manager.SecurityHistoryManager;
 import xyz.lychee.gatekeeper.shared.objects.AbstractLang;
 import xyz.lychee.gatekeeper.shared.objects.CommandPlayer;
+import xyz.lychee.gatekeeper.shared.security.SecuritySnapshot;
 import xyz.lychee.gatekeeper.shared.util.AddressUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class VpnCommand<T> extends PermissibleCommand<T> {
     private static final List<String> ACTIONS = Arrays.asList("add", "remove", "info", "list");
@@ -160,8 +164,14 @@ public class VpnCommand<T> extends PermissibleCommand<T> {
         if (args.length == 1) {
             return filter(ACTIONS, args[0]);
         }
+
         if (args.length == 2) {
             String action = args[0].toLowerCase(Locale.ROOT);
+            if ("add".equals(action)) {
+                Set<String> names = new LinkedHashSet<>(SecurityHistoryManager.INSTANCE.getRecentNames());
+                names.addAll(DataManager.INSTANCE.getVpnBindingPlayers());
+                return filter(names, args[1]);
+            }
             if ("remove".equals(action)) {
                 return filter(DataManager.INSTANCE.getVpnBindingPlayers(), args[1]);
             }
@@ -169,12 +179,20 @@ public class VpnCommand<T> extends PermissibleCommand<T> {
                 return filter(DataManager.INSTANCE.getVpnBindingTargets(), args[1]);
             }
         }
+
         if (args.length == 3 && "add".equalsIgnoreCase(args[0])) {
+            Set<String> addresses = new LinkedHashSet<>();
             String existingAddress = DataManager.INSTANCE.getVpnBindingAddress(args[1]);
-            if (existingAddress != null) {
-                return filter(Collections.singletonList(existingAddress), args[2]);
+            if (existingAddress != null) addresses.add(existingAddress);
+
+            SecuritySnapshot recent = SecurityHistoryManager.INSTANCE.find(args[1]);
+            if (recent != null) {
+                String recentAddress = AddressUtils.normalizeIpv4(recent.getAddress());
+                if (recentAddress != null) addresses.add(recentAddress);
             }
+            return filter(addresses, args[2]);
         }
+
         return Collections.emptyList();
     }
 
