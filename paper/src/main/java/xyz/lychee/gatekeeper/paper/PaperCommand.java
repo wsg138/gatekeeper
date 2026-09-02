@@ -14,7 +14,7 @@ public class PaperCommand extends Command {
     private final CommandHandler<Component> handler;
 
     public PaperCommand(PaperMain gatekeeper) {
-        super("gatekeeper", "Gatekeeper command manager", "/gatekeeper <whitelist/blacklist/info/reload>", Collections.singletonList("gk"));
+        super("gatekeeper", "Gatekeeper command manager", "/gatekeeper <whitelist|blacklist|vpn|info|risk|reload>", Collections.singletonList("gk"));
         this.gatekeeper = gatekeeper;
         this.handler = new CommandHandler<>(this.gatekeeper);
     }
