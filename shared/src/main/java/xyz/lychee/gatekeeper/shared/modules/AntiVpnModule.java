@@ -52,7 +52,10 @@ public class AntiVpnModule extends AbstractModule {
 
     @Override
     public boolean handlePreLogin(GeoConnection connection) {
-        if (connection.isLocalhost() || this.providers.isEmpty() || this.checksPerPlayer <= 0) return false;
+        if (connection.isLocalhost()
+                || connection.isApprovedVpnEndpoint()
+                || this.providers.isEmpty()
+                || this.checksPerPlayer <= 0) return false;
 
         String key = connection.getAddressKey();
         CachedVerdict cached = this.getCachedVerdict(key);

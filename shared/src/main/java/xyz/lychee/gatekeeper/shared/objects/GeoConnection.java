@@ -22,6 +22,7 @@ public class GeoConnection {
     private final RiskAssessment riskAssessment = new RiskAssessment();
     private volatile long timestamp = -1L;
     private volatile EnumAccess access = EnumAccess.NULL;
+    private volatile boolean approvedVpnEndpoint;
     private volatile String diagnosticAction;
     private volatile String diagnosticReason;
     private volatile String diagnosticDetail;

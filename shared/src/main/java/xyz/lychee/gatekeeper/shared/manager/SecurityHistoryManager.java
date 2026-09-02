@@ -5,8 +5,11 @@ import xyz.lychee.gatekeeper.shared.objects.AbstractManager;
 import xyz.lychee.gatekeeper.shared.objects.GeoConnection;
 import xyz.lychee.gatekeeper.shared.security.SecuritySnapshot;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Short-lived, memory-only staff diagnostics for recent connection decisions. */
@@ -69,6 +72,15 @@ public class SecurityHistoryManager extends AbstractManager {
         SecuritySnapshot byIp = this.byAddress.get(key);
         if (byIp != null) return byIp;
         return this.byName.get(key);
+    }
+
+    public List<String> getRecentNames() {
+        this.prune();
+        TreeSet<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (SecuritySnapshot snapshot : this.byName.values()) {
+            names.add(snapshot.getName());
+        }
+        return new ArrayList<>(names);
     }
 
     private void prune() {

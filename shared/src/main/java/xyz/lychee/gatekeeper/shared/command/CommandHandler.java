@@ -6,6 +6,7 @@ import xyz.lychee.gatekeeper.shared.command.subcommand.BlacklistCommand;
 import xyz.lychee.gatekeeper.shared.command.subcommand.InfoCommand;
 import xyz.lychee.gatekeeper.shared.command.subcommand.ReloadCommand;
 import xyz.lychee.gatekeeper.shared.command.subcommand.RiskCommand;
+import xyz.lychee.gatekeeper.shared.command.subcommand.VpnCommand;
 import xyz.lychee.gatekeeper.shared.command.subcommand.WhitelistCommand;
 import xyz.lychee.gatekeeper.shared.objects.AbstractLang;
 import xyz.lychee.gatekeeper.shared.objects.CommandPlayer;
@@ -13,13 +14,14 @@ import xyz.lychee.gatekeeper.shared.objects.CommandPlayer;
 import java.util.*;
 
 public class CommandHandler<T> extends PermissibleCommand<T> {
-    private final Map<String, PermissibleCommand<T>> commandMap = new HashMap<>();
+    private final Map<String, PermissibleCommand<T>> commandMap = new LinkedHashMap<>();
 
     public CommandHandler(Gatekeeper<T> gatekeeper) {
         super(gatekeeper, "gatekeeper.command");
 
         this.commandMap.put("whitelist", new WhitelistCommand<>(gatekeeper));
         this.commandMap.put("blacklist", new BlacklistCommand<>(gatekeeper));
+        this.commandMap.put("vpn", new VpnCommand<>(gatekeeper));
         this.commandMap.put("info", new InfoCommand<>(gatekeeper));
         this.commandMap.put("risk", new RiskCommand<>(gatekeeper));
         this.commandMap.put("reload", new ReloadCommand<>(gatekeeper));
@@ -41,11 +43,13 @@ public class CommandHandler<T> extends PermissibleCommand<T> {
     @Override
     protected List<String> handleSuggestion(CommandPlayer<T> player, String[] args) {
         if (args.length == 1) {
+            String prefix = args[0] == null ? "" : args[0].toLowerCase(Locale.ROOT);
             List<String> firstArguments = new ArrayList<>();
-            for (String commandString : this.commandMap.keySet()) {
-                PermissibleCommand<T> cmd = this.commandMap.get(commandString);
-                if (cmd == null || player.hasPermission(cmd.getPermission())) {
-                    firstArguments.add(commandString);
+            for (Map.Entry<String, PermissibleCommand<T>> entry : this.commandMap.entrySet()) {
+                PermissibleCommand<T> cmd = entry.getValue();
+                if ((cmd == null || player.hasPermission(cmd.getPermission()))
+                        && entry.getKey().startsWith(prefix)) {
+                    firstArguments.add(entry.getKey());
                 }
             }
             return firstArguments;
