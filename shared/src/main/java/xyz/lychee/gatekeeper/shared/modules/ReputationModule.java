@@ -35,7 +35,7 @@ public class ReputationModule extends AbstractModule {
 
     @Override
     public boolean handlePreLogin(GeoConnection connection) {
-        if (connection.isLocalhost() || !connection.isIpv4() || connection.isApprovedVpnEndpoint()) return false;
+        if (connection.isLocalhost() || !connection.isIpv4()) return false;
 
         EnumSet<RiskSignalType> matches = ReputationManager.INSTANCE.assess(
                 connection.getAddressData(),
@@ -43,12 +43,32 @@ public class ReputationModule extends AbstractModule {
         );
 
         for (RiskSignalType type : matches) {
+            if (connection.isApprovedVpnEndpoint() && isVpnEndpointNoise(type)) continue;
+
             int points = this.scores.getOrDefault(type, type.getDefaultPoints());
             if (points <= 0) continue;
             connection.getRiskAssessment().add(new RiskSignal(type, points, "network reputation"));
         }
 
         return false;
+    }
+
+    /**
+     * Signals that describe the expected network characteristics of an approved
+     * VPN endpoint rather than independent abuse by the connecting player.
+     * Scanner and abuse intelligence intentionally remain active.
+     */
+    static boolean isVpnEndpointNoise(RiskSignalType type) {
+        switch (type) {
+            case REPUTATION_VPN_IP:
+            case REPUTATION_PROXY_IP:
+            case REPUTATION_HOSTING_IP:
+            case REPUTATION_VPN_ASN:
+            case REPUTATION_HOSTING_ASN:
+                return true;
+            default:
+                return false;
+        }
     }
 
     @Override
