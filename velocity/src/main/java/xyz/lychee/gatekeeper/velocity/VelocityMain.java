@@ -121,6 +121,11 @@ public class VelocityMain implements Gatekeeper<Component> {
             }
 
             @Override
+            public boolean canViewNetworkIdentifiers() {
+                return this.getPlayer() == getProxy().getConsoleCommandSource();
+            }
+
+            @Override
             public void sendMessage(Component message) {
                 if (this.getPlayer() instanceof CommandSource) {
                     ((CommandSource) this.getPlayer()).sendMessage(message);
