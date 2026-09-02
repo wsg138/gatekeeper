@@ -10,6 +10,7 @@ import it.unimi.dsi.fastutil.ints.Int2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ByteMap;
 import it.unimi.dsi.fastutil.objects.Object2ByteMaps;
 import it.unimi.dsi.fastutil.objects.Object2ByteOpenHashMap;
+import lombok.AccessLevel;
 import lombok.Getter;
 import xyz.lychee.gatekeeper.shared.Gatekeeper;
 import xyz.lychee.gatekeeper.shared.objects.AbstractManager;
@@ -26,8 +27,16 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -38,6 +47,9 @@ public class DataManager extends AbstractManager implements Runnable {
     private final Int2ByteMap addresses = Int2ByteMaps.synchronize(new Int2ByteOpenHashMap());
     private final Int2ByteMap asns = Int2ByteMaps.synchronize(new Int2ByteOpenHashMap());
     private final Object2ByteMap<String> nicknames = Object2ByteMaps.synchronize(new Object2ByteOpenHashMap<>());
+
+    @Getter(AccessLevel.NONE)
+    private final Map<String, String> vpnBindings = new LinkedHashMap<>();
 
     private Logger logger;
     private Path dataPath;
@@ -83,6 +95,8 @@ public class DataManager extends AbstractManager implements Runnable {
         Int2ByteOpenHashMap loadedAddresses = new Int2ByteOpenHashMap();
         Int2ByteOpenHashMap loadedAsns = new Int2ByteOpenHashMap();
         Object2ByteOpenHashMap<String> loadedNicknames = new Object2ByteOpenHashMap<>();
+        Map<String, String> loadedVpnBindings = new LinkedHashMap<>();
+        Set<String> loadedVpnAddresses = new HashSet<>();
 
         try (InputStream is = Files.newInputStream(this.dataPath)) {
             JsonObject json = JsonParser.object().from(is);
@@ -121,9 +135,28 @@ public class DataManager extends AbstractManager implements Runnable {
                     } catch (NumberFormatException ignored) {}
                 }
             }
+
+            JsonObject vpnBindingsObj = json.getObject("vpn_bindings");
+            if (vpnBindingsObj != null) {
+                for (Map.Entry<String, Object> entry : vpnBindingsObj.entrySet()) {
+                    if (!(entry.getValue() instanceof String)) continue;
+
+                    String nickname = normalizeNickname(entry.getKey());
+                    String address = AddressUtils.normalizeIpv4((String) entry.getValue());
+                    if (nickname.isEmpty() || address == null) continue;
+
+                    if (!loadedVpnAddresses.add(address)) {
+                        if (this.logger != null) {
+                            this.logger.warning("Ignoring duplicate VPN binding for " + address + " while loading data.json");
+                        }
+                        continue;
+                    }
+                    loadedVpnBindings.put(nickname, address);
+                }
+            }
         }
 
-        return new LoadedData(loadedAddresses, loadedAsns, loadedNicknames);
+        return new LoadedData(loadedAddresses, loadedAsns, loadedNicknames, loadedVpnBindings);
     }
 
     private void applyLoadedData(LoadedData loaded) {
@@ -131,12 +164,14 @@ public class DataManager extends AbstractManager implements Runnable {
         this.addresses.putAll(loaded.addresses);
         this.asns.putAll(loaded.asns);
         this.nicknames.putAll(loaded.nicknames);
+        this.vpnBindings.putAll(loaded.vpnBindings);
     }
 
     private void clearMemory() {
         this.addresses.clear();
         this.nicknames.clear();
         this.asns.clear();
+        this.vpnBindings.clear();
     }
 
     public synchronized void saveDataFile() {
@@ -146,6 +181,12 @@ public class DataManager extends AbstractManager implements Runnable {
         json.put("addresses", this.addresses);
         json.put("asns", this.asns);
         json.put("nicknames", this.nicknames);
+
+        JsonObject vpnBindingsObj = new JsonObject();
+        for (Map.Entry<String, String> entry : this.vpnBindings.entrySet()) {
+            vpnBindingsObj.put(entry.getKey(), entry.getValue());
+        }
+        json.put("vpn_bindings", vpnBindingsObj);
 
         try {
             this.writeDataFileWithRecovery(JsonWriter.string(json));
@@ -252,28 +293,123 @@ public class DataManager extends AbstractManager implements Runnable {
         }
     }
 
+    public synchronized VpnBindingUpdateResult bindVpn(String nickname, String address) {
+        String normalizedNickname = normalizeNickname(nickname);
+        String normalizedAddress = AddressUtils.normalizeIpv4(address);
+        if (normalizedNickname.isEmpty()) return VpnBindingUpdateResult.INVALID_NAME;
+        if (normalizedAddress == null) return VpnBindingUpdateResult.INVALID_ADDRESS;
+
+        String owner = this.findVpnBindingOwner(normalizedAddress);
+        if (owner != null && !owner.equals(normalizedNickname)) {
+            return VpnBindingUpdateResult.ADDRESS_IN_USE;
+        }
+
+        String previous = this.vpnBindings.get(normalizedNickname);
+        if (normalizedAddress.equals(previous)) {
+            return VpnBindingUpdateResult.UNCHANGED;
+        }
+
+        this.vpnBindings.put(normalizedNickname, normalizedAddress);
+        this.saveDataFile();
+        return previous == null ? VpnBindingUpdateResult.ADDED : VpnBindingUpdateResult.UPDATED;
+    }
+
+    public synchronized String removeVpnBinding(String nickname) {
+        String removed = this.vpnBindings.remove(normalizeNickname(nickname));
+        if (removed != null) this.saveDataFile();
+        return removed;
+    }
+
+    public synchronized String getVpnBindingAddress(String nickname) {
+        return this.vpnBindings.get(normalizeNickname(nickname));
+    }
+
+    public synchronized String getVpnBindingOwner(String address) {
+        String normalizedAddress = AddressUtils.normalizeIpv4(address);
+        return normalizedAddress == null ? null : this.findVpnBindingOwner(normalizedAddress);
+    }
+
+    public synchronized VpnBindingStatus resolveVpnBinding(String nickname, String address) {
+        String normalizedNickname = normalizeNickname(nickname);
+        String normalizedAddress = AddressUtils.normalizeIpv4(address);
+        if (normalizedNickname.isEmpty() || normalizedAddress == null) return VpnBindingStatus.NONE;
+
+        String expectedAddress = this.vpnBindings.get(normalizedNickname);
+        if (normalizedAddress.equals(expectedAddress)) return VpnBindingStatus.MATCHED;
+
+        String owner = this.findVpnBindingOwner(normalizedAddress);
+        return owner != null && !owner.equals(normalizedNickname)
+                ? VpnBindingStatus.RESERVED_FOR_OTHER
+                : VpnBindingStatus.NONE;
+    }
+
+    public synchronized VpnBindingStatus resolveVpnBinding(GeoConnection connection) {
+        if (connection == null || !connection.isIpv4()) return VpnBindingStatus.NONE;
+        return this.resolveVpnBinding(connection.getName(), connection.getAddressKey());
+    }
+
+    public synchronized List<String> getVpnBindingPlayers() {
+        return new ArrayList<>(new TreeSet<>(this.vpnBindings.keySet()));
+    }
+
+    public synchronized List<String> getVpnBindingTargets() {
+        TreeSet<String> targets = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        targets.addAll(this.vpnBindings.keySet());
+        targets.addAll(this.vpnBindings.values());
+        return new ArrayList<>(targets);
+    }
+
+    public synchronized Map<String, String> getVpnBindingsSnapshot() {
+        return Collections.unmodifiableMap(new TreeMap<>(this.vpnBindings));
+    }
+
+    private String findVpnBindingOwner(String normalizedAddress) {
+        for (Map.Entry<String, String> entry : this.vpnBindings.entrySet()) {
+            if (normalizedAddress.equals(entry.getValue())) return entry.getKey();
+        }
+        return null;
+    }
+
     @Override
     public void run() {
         this.saveDataFile();
     }
 
     private static String normalizeNickname(String nickname) {
-        return nickname == null ? "" : nickname.toLowerCase(Locale.ROOT);
+        return nickname == null ? "" : nickname.trim().toLowerCase(Locale.ROOT);
+    }
+
+    public enum VpnBindingStatus {
+        NONE,
+        MATCHED,
+        RESERVED_FOR_OTHER
+    }
+
+    public enum VpnBindingUpdateResult {
+        ADDED,
+        UPDATED,
+        UNCHANGED,
+        ADDRESS_IN_USE,
+        INVALID_NAME,
+        INVALID_ADDRESS
     }
 
     private static final class LoadedData {
         private final Int2ByteOpenHashMap addresses;
         private final Int2ByteOpenHashMap asns;
         private final Object2ByteOpenHashMap<String> nicknames;
+        private final Map<String, String> vpnBindings;
 
         private LoadedData(
                 Int2ByteOpenHashMap addresses,
                 Int2ByteOpenHashMap asns,
-                Object2ByteOpenHashMap<String> nicknames
+                Object2ByteOpenHashMap<String> nicknames,
+                Map<String, String> vpnBindings
         ) {
             this.addresses = addresses;
             this.asns = asns;
             this.nicknames = nicknames;
+            this.vpnBindings = vpnBindings;
         }
     }
 }
