@@ -125,6 +125,12 @@ public class SpongeMain implements Gatekeeper<Component> {
             }
 
             @Override
+            public boolean canViewNetworkIdentifiers() {
+                if (!(this.getPlayer() instanceof CommandCause)) return false;
+                return !(((CommandCause) this.getPlayer()).audience() instanceof ServerPlayer);
+            }
+
+            @Override
             public void sendMessage(Component message) {
                 if (this.getPlayer() instanceof CommandCause) {
                     ((CommandCause) this.getPlayer()).audience().sendMessage(message);
