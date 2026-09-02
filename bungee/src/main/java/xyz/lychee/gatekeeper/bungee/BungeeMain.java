@@ -95,6 +95,11 @@ public class BungeeMain extends Plugin implements Gatekeeper<BaseComponent>, Lis
             }
 
             @Override
+            public boolean canViewNetworkIdentifiers() {
+                return this.getPlayer() == getProxy().getConsole();
+            }
+
+            @Override
             public void sendMessage(BaseComponent message) {
                 if (this.getPlayer() instanceof CommandSender) {
                     ((CommandSender) this.getPlayer()).sendMessage(message);
