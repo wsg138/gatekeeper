@@ -98,6 +98,20 @@ public class AddressUtils {
         return value < 256 && lastDotIdx != len - 1 && dots == 3;
     }
 
+    /**
+     * Returns a stable dotted-decimal representation for a literal IPv4 address,
+     * or {@code null} when the input is not a valid IPv4 literal. This deliberately
+     * performs no DNS lookup so staff commands cannot accidentally bind hostnames.
+     */
+    public static String normalizeIpv4(String input) {
+        if (!isIpv4(input)) return null;
+        int encoded = ipv4ToInt(input);
+        return ((encoded >>> 24) & 0xFF) + "."
+                + ((encoded >>> 16) & 0xFF) + "."
+                + ((encoded >>> 8) & 0xFF) + "."
+                + (encoded & 0xFF);
+    }
+
     public static boolean isIpv4Equal(InetAddress address, int addressData) {
         return isIpv4(address) && AddressUtils.ipv4ToInt(address) == addressData;
     }
