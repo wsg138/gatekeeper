@@ -30,6 +30,11 @@ public class VpnCommand<T> extends PermissibleCommand<T> {
     @Override
     protected void handleExecution(CommandPlayer<T> player, String[] args) {
         AbstractLang<T> lang = this.getGatekeeper().language();
+        if (!player.canViewNetworkIdentifiers()) {
+            player.sendMessage(lang, "messages.vpn.console_only");
+            return;
+        }
+
         if (args.length == 0) {
             player.sendMessage(lang, "messages.vpn.usage");
             return;
@@ -161,6 +166,8 @@ public class VpnCommand<T> extends PermissibleCommand<T> {
     @NotNull
     @Override
     protected List<String> handleSuggestion(CommandPlayer<T> player, String[] args) {
+        if (!player.canViewNetworkIdentifiers()) return Collections.emptyList();
+
         if (args.length == 1) {
             return filter(ACTIONS, args[0]);
         }
