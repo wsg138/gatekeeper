@@ -35,7 +35,7 @@ public class ReputationModule extends AbstractModule {
 
     @Override
     public boolean handlePreLogin(GeoConnection connection) {
-        if (connection.isLocalhost() || !connection.isIpv4()) return false;
+        if (connection.isLocalhost() || !connection.isIpv4() || connection.isApprovedVpnEndpoint()) return false;
 
         EnumSet<RiskSignalType> matches = ReputationManager.INSTANCE.assess(
                 connection.getAddressData(),
