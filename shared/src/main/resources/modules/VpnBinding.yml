@@ -1,0 +1,11 @@
+enabled: true
+priority: 2
+log: "Connection from %address%/%name% rejected: VPN endpoint reserved to another account! (ASN=%asn%, TIME=%time%ms, COUNTRY=%country%)"
+kick:
+  - "%prefix%"
+  - ""
+  - "&#FF5555This VPN endpoint is reserved for another account."
+  - "&#C7C7C7Use your normal connection or a different network and try again."
+  - ""
+  - "&#8A8A8AIf you believe this is a mistake, open a ticket in our Discord."
+values: { }
