@@ -8,6 +8,7 @@ import xyz.lychee.gatekeeper.shared.objects.AbstractLang;
 import xyz.lychee.gatekeeper.shared.objects.CommandPlayer;
 import xyz.lychee.gatekeeper.shared.security.RiskSignal;
 import xyz.lychee.gatekeeper.shared.security.SecuritySnapshot;
+import xyz.lychee.gatekeeper.shared.util.AddressUtils;
 
 import java.util.Collections;
 import java.util.List;
@@ -25,6 +26,11 @@ public class RiskCommand<T> extends PermissibleCommand<T> {
             return;
         }
 
+        if (AddressUtils.isIpv4(args[0]) && !player.canViewNetworkIdentifiers()) {
+            player.sendMessage(lang, "messages.risk.network_identifier_console_only");
+            return;
+        }
+
         SecuritySnapshot snapshot = SecurityHistoryManager.INSTANCE.find(args[0]);
         if (snapshot == null) {
             player.sendMessage(lang, "messages.risk.error", args[0]);
@@ -35,9 +41,14 @@ public class RiskCommand<T> extends PermissibleCommand<T> {
         String age = ageSeconds < 60 ? ageSeconds + "s ago" : (ageSeconds / 60L) + "m ago";
 
         send(player, lang, "&#54DAF4GateKeeper security result for &f" + snapshot.getName());
-        send(player, lang, " &8» &7IP: &f" + snapshot.getAddress()
-                + " &8| &7ASN: &f" + snapshot.getAsn()
-                + " &8| &7Country: &f" + snapshot.getCountry());
+        if (player.canViewNetworkIdentifiers()) {
+            send(player, lang, " &8» &7IP: &f" + snapshot.getAddress()
+                    + " &8| &7ASN: &f" + snapshot.getAsn()
+                    + " &8| &7Country: &f" + snapshot.getCountry());
+        } else {
+            send(player, lang, " &8» &7ASN: &f" + snapshot.getAsn()
+                    + " &8| &7Country: &f" + snapshot.getCountry());
+        }
         send(player, lang, " &8» &7Decision: &f" + snapshot.getAction()
                 + " &8| &7Reason: &f" + snapshot.getReason()
                 + " &8| &7Risk: &f" + snapshot.getScore());

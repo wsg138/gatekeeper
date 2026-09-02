@@ -5,7 +5,7 @@ messages:
     - '%prefix% &8• &7Available commands:'
     - ' &8» &f/gatekeeper whitelist add/remove (address/name/asn) &8- &7Adds/removes a whitelist entry'
     - ' &8» &f/gatekeeper blacklist add/remove (address/name/asn) &8- &7Adds/removes a blacklist entry'
-    - ' &8» &f/gatekeeper vpn add/remove/info/list &8- &7Manages account-specific VPN endpoint bindings'
+    - ' &8» &f/gatekeeper vpn add/remove/info/list &8- &7Manages VPN endpoint bindings from console'
     - ' &8» &f/gatekeeper info (address/name/asn) &8- &7Shows staff access-list information'
     - ' &8» &f/gatekeeper risk (player/ip) &8- &7Shows the latest security decision and evidence'
     - ' &8» &f/gatekeeper reload &8- &7Reloads GateKeeper configuration'
@@ -27,6 +27,7 @@ messages:
       - '%prefix% &8• &7Correct usage:'
       - ' &8» &f/gatekeeper risk (player/ip) &8- &7Shows the most recent connection-security result.'
     error: '%prefix% &8• &7No recent security result was found for {}. Results expire after 30 minutes.'
+    network_identifier_console_only: '%prefix% &8• &7IP-based security lookups can only be used from the server console.'
 
   vpn:
     usage:
@@ -35,6 +36,7 @@ messages:
       - ' &8» &f/gatekeeper vpn remove (player) &8- &7Removes a VPN endpoint binding.'
       - ' &8» &f/gatekeeper vpn info (player/ip) &8- &7Shows a VPN endpoint binding.'
       - ' &8» &f/gatekeeper vpn list &8- &7Lists all VPN endpoint bindings.'
+    console_only: '%prefix% &8• &7VPN endpoint bindings can only be managed from the server console.'
     added: '%prefix% &8• &7Bound &f{} &7to VPN endpoint &f{}&7.'
     updated: '%prefix% &8• &7Updated &f{}&7''s VPN endpoint from &f{} &7to &f{}&7.'
     removed: '%prefix% &8• &7Removed the VPN binding for &f{} &8(&7{}&8)&7.'
@@ -46,7 +48,6 @@ messages:
     info: '%prefix% &8• &f{} &7is bound to VPN endpoint &f{}&7.'
     list_header: '%prefix% &8• &7VPN endpoint bindings &8(&f{}&8)&7:'
     list_entry: ' &8» &f{} &8→ &7{}'
-
     list_empty: '%prefix% &8• &7There are no VPN endpoint bindings.'
 
   whitelist:

@@ -26,10 +26,19 @@ public abstract class CommandPlayer<T> {
         }
 
         if (message == null) {
-            throw new NullPointerException("Unknown language key: \"messages.no_permission");
+            throw new NullPointerException("Unknown language key: \"messages.no_permission\"");
         }
 
         this.sendMessage(message);
+    }
+
+    /**
+     * Whether this command source is trusted to receive raw network identifiers
+     * such as player IP addresses. The safe default is false; platform adapters
+     * opt in only for their server-side console/non-player command source.
+     */
+    public boolean canViewNetworkIdentifiers() {
+        return false;
     }
 
     public abstract boolean hasPermission(String permission);

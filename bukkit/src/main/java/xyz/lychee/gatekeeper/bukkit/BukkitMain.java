@@ -3,6 +3,7 @@ package xyz.lychee.gatekeeper.bukkit;
 import net.md_5.bungee.api.ChatColor;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
@@ -88,6 +89,11 @@ public class BukkitMain extends JavaPlugin implements Gatekeeper<String>, Listen
                     return ((CommandSender) this.getPlayer()).hasPermission(permission);
                 }
                 return false;
+            }
+
+            @Override
+            public boolean canViewNetworkIdentifiers() {
+                return this.getPlayer() instanceof ConsoleCommandSender;
             }
 
             @Override
