@@ -9,6 +9,7 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandMap;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -96,6 +97,11 @@ public class PaperMain extends JavaPlugin implements Gatekeeper<Component>, List
                     return ((CommandSender) this.getPlayer()).hasPermission(permission);
                 }
                 return false;
+            }
+
+            @Override
+            public boolean canViewNetworkIdentifiers() {
+                return this.getPlayer() instanceof ConsoleCommandSender;
             }
 
             @Override
