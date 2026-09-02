@@ -5,6 +5,7 @@ messages:
     - '%prefix% &8• &7Available commands:'
     - ' &8» &f/gatekeeper whitelist add/remove (address/name/asn) &8- &7Adds/removes a whitelist entry'
     - ' &8» &f/gatekeeper blacklist add/remove (address/name/asn) &8- &7Adds/removes a blacklist entry'
+    - ' &8» &f/gatekeeper vpn add/remove/info/list &8- &7Manages account-specific VPN endpoint bindings'
     - ' &8» &f/gatekeeper info (address/name/asn) &8- &7Shows staff access-list information'
     - ' &8» &f/gatekeeper risk (player/ip) &8- &7Shows the latest security decision and evidence'
     - ' &8» &f/gatekeeper reload &8- &7Reloads GateKeeper configuration'
@@ -26,6 +27,27 @@ messages:
       - '%prefix% &8• &7Correct usage:'
       - ' &8» &f/gatekeeper risk (player/ip) &8- &7Shows the most recent connection-security result.'
     error: '%prefix% &8• &7No recent security result was found for {}. Results expire after 30 minutes.'
+
+  vpn:
+    usage:
+      - '%prefix% &8• &7Correct usage:'
+      - ' &8» &f/gatekeeper vpn add (player) (ipv4) &8- &7Adds or updates a VPN endpoint binding.'
+      - ' &8» &f/gatekeeper vpn remove (player) &8- &7Removes a VPN endpoint binding.'
+      - ' &8» &f/gatekeeper vpn info (player/ip) &8- &7Shows a VPN endpoint binding.'
+      - ' &8» &f/gatekeeper vpn list &8- &7Lists all VPN endpoint bindings.'
+    added: '%prefix% &8• &7Bound &f{} &7to VPN endpoint &f{}&7.'
+    updated: '%prefix% &8• &7Updated &f{}&7''s VPN endpoint from &f{} &7to &f{}&7.'
+    removed: '%prefix% &8• &7Removed the VPN binding for &f{} &8(&7{}&8)&7.'
+    exists: '%prefix% &8• &7{} is already bound to {}.'
+    missing: '%prefix% &8• &7No VPN binding was found for {}.'
+    invalid_ip: '%prefix% &8• &7{} is not a valid IPv4 address.'
+    invalid_player: '%prefix% &8• &7A valid player name is required.'
+    address_in_use: '%prefix% &8• &7VPN endpoint {} is already reserved for {}.'
+    info: '%prefix% &8• &f{} &7is bound to VPN endpoint &f{}&7.'
+    list_header: '%prefix% &8• &7VPN endpoint bindings &8(&f{}&8)&7:'
+    list_entry: ' &8» &f{} &8→ &7{}'
+
+    list_empty: '%prefix% &8• &7There are no VPN endpoint bindings.'
 
   whitelist:
     usage:
