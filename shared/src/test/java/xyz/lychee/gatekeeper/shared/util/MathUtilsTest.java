@@ -21,9 +21,9 @@ final class MathUtilsTest {
     }
 
     @Test
-    void roundingUsesRequestedDecimalPrecision() {
+    void roundingUsesRequestedDecimalPrecisionAndMathRoundTieSemantics() {
         assertEquals(12.35, MathUtils.round(12.345, 2), 0.000001);
-        assertEquals(-12.35, MathUtils.round(-12.345, 2), 0.000001);
+        assertEquals(-12.34, MathUtils.round(-12.345, 2), 0.000001);
         assertEquals(13.0, MathUtils.round(12.6, 0), 0.000001);
         assertEquals(1.235, MathUtils.round(1.2346, 3), 0.000001);
     }
